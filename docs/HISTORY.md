@@ -112,6 +112,7 @@
 - Codex CLI의 사용량 제한(Usage Limit) 이슈가 발생함에 따라, 대체 엔진으로 `Gemini CLI`를 지원하기로 했다.
 - 특정 엔진에 종속되지 않도록 `.env` 설정(`ORCHESTRATOR_TYPE`)만으로 Codex와 Gemini를 자유롭게 전환할 수 있는 스위칭 아키텍처를 구현했다.
 - Gemini CLI의 특성(중첩된 JSON 출력, -p 프롬프트 인자 구조 등)을 백엔드가 자동으로 인식하고 파싱하도록 로직을 보강했다.
+- Oracle 배포에서는 API key가 아니라 로컬 `~/.gemini/oauth_creds.json`을 GitHub Secret으로 전달해 CLI OAuth 인증을 재사용한다.
 
 ### 순수 오케스트레이터 원칙 고수
 

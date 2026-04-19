@@ -42,6 +42,7 @@ Repository secrets:
 
 - `OCI_SSH_PRIVATE_KEY`: VM에 접속 가능한 private key 전체
 - `CODEX_AUTH_JSON`: 로컬 `secrets/codex/auth.json` 파일 내용 전체
+- `GEMINI_OAUTH_CREDS_JSON`: 로컬 `~/.gemini/oauth_creds.json` 파일 내용 전체. `ORCHESTRATOR_TYPE=gemini`일 때 필요하다.
 - `TELEGRAM_BOT_TOKEN`
 - `KIS_REAL_APP_KEY`
 - `KIS_REAL_APP_SECRET`
@@ -56,9 +57,9 @@ Repository secrets:
 
 - `CI` workflow는 push/PR에서 backend test, frontend build, compose config를 검증한다.
 - `Deploy Oracle` workflow는 수동 실행으로 동작한다. Oracle VM과 SSH secret이 준비되기 전 push 배포 실패를 막기 위해 자동 배포는 아직 켜지지 않았다.
-- 배포 시 GitHub Actions가 `.env`, `secrets/codex/auth.json`, release archive를 VM으로 전송한다.
+- 배포 시 GitHub Actions가 `.env`, `secrets/codex/auth.json`, `secrets/gemini/oauth_creds.json`, release archive를 VM으로 전송한다.
 - VM에서는 `docker compose -f docker-compose.oracle-lite.yml up -d --build`가 실행된다.
-- SQLite DB 파일은 Docker volume의 `/data/stock_scheduler.db`에 저장된다.
+- SQLite DB 파일은 `/opt/stock_scheduler/stock_scheduler.db`에 저장되고 backend 컨테이너의 `/app/stock_scheduler.db`로 bind mount된다.
 
 PostgreSQL로 운영하려면 repository variable `DEPLOY_COMPOSE_FILE=docker-compose.yml`로 바꾸고, VM 메모리를 2GB 이상으로 잡는 것을 권장한다.
 

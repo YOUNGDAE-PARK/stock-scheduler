@@ -19,3 +19,5 @@ dist/
 ssh-key-*
 secrets/codex/*
 !secrets/codex/.gitkeep
+secrets/gemini/*
+!secrets/gemini/.gitkeep

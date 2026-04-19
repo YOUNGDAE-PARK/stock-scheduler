@@ -12,7 +12,7 @@ services:
     volumes:
       - ./stock_scheduler.db:/app/stock_scheduler.db
       - ./secrets/codex/auth.json:/root/.codex/auth.json:ro
-      - /home/ubuntu/.gemini:/root/.gemini
+      - ./secrets/gemini:/root/.gemini
     network_mode: host
     restart: unless-stopped
 

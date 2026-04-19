@@ -107,3 +107,4 @@
 - `Dockerfile.backend`에 BuildKit 캐시 마운트를 적용하여 빌드 속도를 획기적으로 개선했다.
 - `docker-compose.yml`을 수정하여 Gemini 인증 정보와 SQLite DB 영속성을 보장했다.
 - Oracle lite 배포에서 SQLite bind mount 파일을 사전 생성하고 host network backend의 중복 port mapping을 제거했다.
+- Oracle 배포에서 Gemini를 API key가 아니라 `oauth_creds.json` 기반 CLI OAuth 인증 파일로 주입하도록 수정했다.

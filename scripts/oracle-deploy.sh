@@ -5,6 +5,7 @@ APP_DIR="${APP_DIR:-/opt/stock_scheduler}"
 RELEASE_ARCHIVE="${RELEASE_ARCHIVE:-/tmp/stock_scheduler-release.tar.gz}"
 ENV_FILE="${ENV_FILE:-/tmp/stock_scheduler.env}"
 CODEX_AUTH_FILE="${CODEX_AUTH_FILE:-/tmp/codex-auth.json}"
+GEMINI_OAUTH_CREDS_FILE="${GEMINI_OAUTH_CREDS_FILE:-/tmp/gemini-oauth-creds.json}"
 DEPLOY_COMPOSE_FILE="${DEPLOY_COMPOSE_FILE:-docker-compose.oracle-lite.yml}"
 
 mkdir -p "$APP_DIR"
@@ -16,6 +17,9 @@ if [[ ! -s "$ENV_FILE" ]]; then
 fi
 mv "$ENV_FILE" "$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
+DEPLOY_ORCHESTRATOR_TYPE="$(
+  grep -E '^ORCHESTRATOR_TYPE=' "$APP_DIR/.env" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' || true
+)"
 
 mkdir -p "$APP_DIR/secrets/codex"
 if [[ -s "$CODEX_AUTH_FILE" ]]; then
@@ -24,6 +28,30 @@ if [[ -s "$CODEX_AUTH_FILE" ]]; then
 elif [[ ! -s "$APP_DIR/secrets/codex/auth.json" ]]; then
   echo "Missing Codex auth.json. Set GitHub Secret CODEX_AUTH_JSON or upload $APP_DIR/secrets/codex/auth.json manually." >&2
   exit 1
+fi
+
+mkdir -p "$APP_DIR/secrets/gemini"
+if [[ "$DEPLOY_ORCHESTRATOR_TYPE" == "gemini" ]]; then
+  if [[ -s "$GEMINI_OAUTH_CREDS_FILE" ]]; then
+    mv "$GEMINI_OAUTH_CREDS_FILE" "$APP_DIR/secrets/gemini/oauth_creds.json"
+    chmod 600 "$APP_DIR/secrets/gemini/oauth_creds.json"
+  elif [[ ! -s "$APP_DIR/secrets/gemini/oauth_creds.json" ]]; then
+    echo "Missing Gemini oauth_creds.json. Set GitHub Secret GEMINI_OAUTH_CREDS_JSON or upload $APP_DIR/secrets/gemini/oauth_creds.json manually." >&2
+    exit 1
+  fi
+
+  if [[ ! -s "$APP_DIR/secrets/gemini/settings.json" ]]; then
+    cat > "$APP_DIR/secrets/gemini/settings.json" <<'EOF'
+{
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  }
+}
+EOF
+  fi
+  chmod 600 "$APP_DIR/secrets/gemini/settings.json"
 fi
 
 cd "$APP_DIR"

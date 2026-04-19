@@ -49,7 +49,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           ORCHESTRATOR_TYPE: ${{ vars.ORCHESTRATOR_TYPE || 'gemini' }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_OAUTH_CREDS_JSON: ${{ secrets.GEMINI_OAUTH_CREDS_JSON }}
         run: |
           test -n "$OCI_HOST"
           test -n "$OCI_USER"
@@ -57,7 +57,7 @@ jobs:
           test -n "$TELEGRAM_CHAT_ID"
           test -n "$CODEX_AUTH_JSON"
           if [ "$ORCHESTRATOR_TYPE" = "gemini" ]; then
-            test -n "$GEMINI_API_KEY"
+            test -n "$GEMINI_OAUTH_CREDS_JSON"
           fi
 
       - name: Create production env
@@ -65,7 +65,6 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
           ORCHESTRATOR_TYPE: ${{ vars.ORCHESTRATOR_TYPE || 'gemini' }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           KIS_REAL_APP_KEY: ${{ secrets.KIS_REAL_APP_KEY }}
           KIS_REAL_APP_SECRET: ${{ secrets.KIS_REAL_APP_SECRET }}
           KIS_VIRTUAL_APP_KEY: ${{ secrets.KIS_VIRTUAL_APP_KEY }}
@@ -76,7 +75,6 @@ jobs:
           cat > /tmp/stock_scheduler.env <<EOF
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           ORCHESTRATOR_TYPE=${ORCHESTRATOR_TYPE}
-          GEMINI_API_KEY=${GEMINI_API_KEY}
           CODEX_BIN=/usr/local/bin/codex
           GEMINI_BIN=gemini
           CORS_ALLOW_ORIGINS=http://${{ vars.OCI_HOST }}:5173
@@ -99,6 +97,16 @@ jobs:
         run: |
           printf '%s' "$CODEX_AUTH_JSON" > /tmp/codex-auth.json
           test -s /tmp/codex-auth.json
+
+      - name: Create Gemini auth file
+        env:
+          ORCHESTRATOR_TYPE: ${{ vars.ORCHESTRATOR_TYPE || 'gemini' }}
+          GEMINI_OAUTH_CREDS_JSON: ${{ secrets.GEMINI_OAUTH_CREDS_JSON }}
+        run: |
+          if [ "$ORCHESTRATOR_TYPE" = "gemini" ]; then
+            printf '%s' "$GEMINI_OAUTH_CREDS_JSON" > /tmp/gemini-oauth-creds.json
+            test -s /tmp/gemini-oauth-creds.json
+          fi
 
       - name: Create release archive
         run: |
@@ -131,6 +139,9 @@ jobs:
           scp -i ~/.ssh/oci_key /tmp/stock_scheduler-release.tar.gz "$OCI_USER@$OCI_HOST:/tmp/stock_scheduler-release.tar.gz"
           scp -i ~/.ssh/oci_key /tmp/stock_scheduler.env "$OCI_USER@$OCI_HOST:/tmp/stock_scheduler.env"
           scp -i ~/.ssh/oci_key /tmp/codex-auth.json "$OCI_USER@$OCI_HOST:/tmp/codex-auth.json"
+          if [ -s /tmp/gemini-oauth-creds.json ]; then
+            scp -i ~/.ssh/oci_key /tmp/gemini-oauth-creds.json "$OCI_USER@$OCI_HOST:/tmp/gemini-oauth-creds.json"
+          fi
 
       - name: Deploy on Oracle VM
         env:
@@ -138,5 +149,5 @@ jobs:
           OCI_USER: ${{ vars.OCI_USER }}
         run: |
           ssh -i ~/.ssh/oci_key "$OCI_USER@$OCI_HOST" \
-            "APP_DIR='$APP_DIR' DEPLOY_COMPOSE_FILE='$DEPLOY_COMPOSE_FILE' RELEASE_ARCHIVE=/tmp/stock_scheduler-release.tar.gz ENV_FILE=/tmp/stock_scheduler.env CODEX_AUTH_FILE=/tmp/codex-auth.json bash -s" \
+            "APP_DIR='$APP_DIR' DEPLOY_COMPOSE_FILE='$DEPLOY_COMPOSE_FILE' RELEASE_ARCHIVE=/tmp/stock_scheduler-release.tar.gz ENV_FILE=/tmp/stock_scheduler.env CODEX_AUTH_FILE=/tmp/codex-auth.json GEMINI_OAUTH_CREDS_FILE=/tmp/gemini-oauth-creds.json bash -s" \
             < scripts/oracle-deploy.sh
