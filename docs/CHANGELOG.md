@@ -80,3 +80,6 @@
 - 자연어 명령에 `batch` action을 추가해 여러 보유종목을 한 번에 등록할 수 있게 했다.
 - 일괄 보유종목 등록 시 같은 `ticker+market` 항목은 수량을 합산해 저장하도록 했다.
 - 주요 보유 ETF/종목명은 backend 정규화 사전으로 ticker를 보정하고, 기존 row의 잘못된 ticker도 같은 이름 기준으로 업데이트하도록 했다.
+- GitHub Actions CI workflow와 Oracle Cloud 수동 배포 workflow를 추가했다.
+- Oracle VM Docker bootstrap/deploy 스크립트와 CI/CD 문서를 추가했다.
+- 1GB Oracle 무료 VM용 SQLite 기반 lite compose와 SQLite 백업 스크립트를 추가했다.

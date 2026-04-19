@@ -94,6 +94,8 @@
 - 경제뉴스 소스도 사용자가 내부 필드를 직접 관리하지 않고 자연어 요청으로 추가/삭제하며, category/platform/enabled 같은 구조화는 orchestrator와 backend가 맡는다.
 - 사용자는 여러 줄 포트폴리오를 한 번에 붙여넣을 수 있어야 하므로, 자연어 명령은 단일 action뿐 아니라 여러 action을 담은 batch plan도 실행한다.
 - Codex가 ETF ticker를 일부 잘못 추정할 수 있으므로, backend executor는 확인된 주요 보유 종목명을 기준으로 ticker를 보정한다.
+- Oracle Cloud는 계정만 생성된 상태이므로, 먼저 GitHub Actions CI와 수동 CD workflow를 구성하고 VM/SSH secret 준비 후 버튼 배포로 전환한다.
+- 1GB/1core 무료 VM에서는 PostgreSQL보다 SQLite 파일 DB가 적합하므로, Oracle 기본 배포는 lite compose로 시작하고 필요 시 PostgreSQL로 전환한다.
 
 ### 한국투자증권 API 환경 설정
 

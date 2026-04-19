@@ -13,5 +13,9 @@ dist/
 .runlogs/
 *.log
 .DS_Store
+*.key
+*.pem
+*.openssh
+ssh-key-*
 secrets/codex/*
 !secrets/codex/.gitkeep

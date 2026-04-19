@@ -73,6 +73,14 @@ WSL Docker에서 bridge networking의 외부 HTTPS 연결이 막히는 경우에
 docker-compose -f docker-compose.yml -f docker-compose.wsl.yml up -d --build
 ```
 
+Oracle Cloud CI/CD 구성은 `docs/ORACLE_CICD.md`를 따른다.
+
+1GB Oracle 무료 VM에서는 PostgreSQL 대신 SQLite 파일 DB를 쓰는 lite compose를 권장한다.
+
+```bash
+docker compose -f docker-compose.oracle-lite.yml up -d --build
+```
+
 ### 한국투자증권 Open API 설정
 
 직접 입력할 파일 이름은 프로젝트 루트의 `.env`다. `.env.example`은 공유용 템플릿이고, 실제 비밀값은 `.env`에만 입력한다.

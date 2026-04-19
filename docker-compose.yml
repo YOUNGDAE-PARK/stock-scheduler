@@ -1,10 +1,11 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: stock_scheduler
       POSTGRES_USER: stock_scheduler
-      POSTGRES_PASSWORD: stock_scheduler
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stock_scheduler}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,9 +21,10 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://stock_scheduler:stock_scheduler@db:5432/stock_scheduler
+      DATABASE_URL: postgresql://stock_scheduler:${POSTGRES_PASSWORD:-stock_scheduler}@db:5432/stock_scheduler
       CODEX_HOME: /root/.codex
       CODEX_BIN: /usr/local/bin/codex
+    restart: unless-stopped
     volumes:
       - ./secrets/codex/auth.json:/root/.codex/auth.json:ro
     depends_on:
@@ -35,6 +37,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+    restart: unless-stopped
     depends_on:
       - backend
     ports:
