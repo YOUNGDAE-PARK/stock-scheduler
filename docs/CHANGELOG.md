@@ -84,3 +84,4 @@
 - Oracle VM Docker bootstrap/deploy 스크립트와 CI/CD 문서를 추가했다.
 - 1GB Oracle 무료 VM용 SQLite 기반 lite compose와 SQLite 백업 스크립트를 추가했다.
 - Oracle bootstrap에서 서버 iptables 5173/8000 허용 규칙을 저장하도록 했다.
+- 운영 frontend public origin을 `CORS_ALLOW_ORIGINS`로 주입해 브라우저 CORS preflight 실패를 막도록 했다.

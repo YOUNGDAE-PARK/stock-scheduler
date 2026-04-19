@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Dict, List, Type
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -49,6 +50,9 @@ TABLES = {
     "expert-sources": "expert_source",
     "schedules": "schedule",
 }
+LOCAL_CORS_ORIGIN_PATTERN = re.compile(
+    r"http://(localhost|127\.0\.0\.1|10\.0\.0\.2|192\.168\.\d+\.\d+|172\.\d+\.\d+\.\d+):5173"
+)
 
 
 @asynccontextmanager
@@ -64,13 +68,30 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="stock_scheduler", version="0.1.0", lifespan=lifespan)
+settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1|10\.0\.0\.2|192\.168\.\d+\.\d+|172\.\d+\.\d+\.\d+):5173",
+    allow_origins=[origin.strip() for origin in settings.cors_allow_origins.split(",") if origin.strip()],
+    allow_origin_regex=LOCAL_CORS_ORIGIN_PATTERN.pattern,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.options("/api/{path:path}")
+def api_preflight(path: str, request: Request) -> Response:
+    origin = request.headers.get("origin", "")
+    allowed = {item.strip() for item in settings.cors_allow_origins.split(",") if item.strip()}
+    headers = {
+        "Access-Control-Allow-Methods": "DELETE,GET,OPTIONS,PATCH,POST,PUT",
+        "Access-Control-Allow-Headers": request.headers.get("access-control-request-headers", "*"),
+        "Access-Control-Allow-Credentials": "true",
+    }
+    if origin:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Vary"] = "Origin"
+    return Response(status_code=204, headers=headers)
 
 
 @app.get("/api/health")

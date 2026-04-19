@@ -69,6 +69,7 @@ jobs:
           cat > /tmp/stock_scheduler.env <<EOF
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
           CODEX_BIN=/usr/local/bin/codex
+          CORS_ALLOW_ORIGINS=http://${{ vars.OCI_HOST }}:5173
           NOTIFICATION_MODE=telegram
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
           TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}

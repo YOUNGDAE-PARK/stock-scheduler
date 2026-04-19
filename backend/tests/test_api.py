@@ -62,6 +62,22 @@ def test_codex_diagnostics_reports_auth_file(monkeypatch, tmp_path):
     assert body["auth_json_exists"] is True
 
 
+def test_command_preflight_allows_configured_origin(monkeypatch, tmp_path):
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", "http://168.107.45.14:5173")
+    with make_client(monkeypatch, tmp_path) as client:
+        response = client.options(
+            "/api/commands",
+            headers={
+                "Origin": "http://168.107.45.14:5173",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://168.107.45.14:5173"
+
+
 def test_interest_area_crud_and_seed_schedule(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         schedules = client.get("/api/schedules").json()

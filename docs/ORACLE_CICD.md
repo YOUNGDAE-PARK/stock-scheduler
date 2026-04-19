@@ -36,6 +36,8 @@ Repository variables:
 - `KIS_REAL_BASE_URL`: 기본값 `https://openapi.koreainvestment.com:9443`
 - `KIS_VIRTUAL_BASE_URL`: 기본값 `https://openapivts.koreainvestment.com:29443`
 
+배포 workflow는 `CORS_ALLOW_ORIGINS=http://<OCI_HOST>:5173`을 `.env`에 자동으로 넣는다.
+
 Repository secrets:
 
 - `OCI_SSH_PRIVATE_KEY`: VM에 접속 가능한 private key 전체

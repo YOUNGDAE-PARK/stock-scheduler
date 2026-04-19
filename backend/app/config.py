@@ -9,6 +9,7 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default="sqlite:///./stock_scheduler.db", alias="DATABASE_URL")
     codex_bin: str = Field(default="/usr/bin/codex", alias="CODEX_BIN")
+    cors_allow_origins: str = Field(default="", alias="CORS_ALLOW_ORIGINS")
     notification_mode: str = Field(default="dry-run", alias="NOTIFICATION_MODE")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
