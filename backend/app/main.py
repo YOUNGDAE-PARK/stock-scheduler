@@ -272,7 +272,26 @@ def run_command(payload: CommandRequest):
 
 @app.post("/api/analysis/run", response_model=AnalysisRun)
 def run_analysis(payload: AnalysisRunRequest):
-    result = run_dry_analysis(payload.run_type, payload.target, payload.agent_role)
+    # 실제 provider 연결이 완료되었으므로 dry-run을 실제 분석으로 교체
+    # manual_codex_analysis는 target stocks 정보를 context로 넘겨야 함
+    ticker = payload.target.get("ticker", "UNKNOWN")
+    market = payload.target.get("market", "KR")
+    name = payload.target.get("name") or ticker
+    stocks = [{"ticker": ticker, "market": market, "name": name}]
+    context = {
+        "schedule": {"name": "수동 분석", "schedule_type": payload.run_type},
+        "target": payload.target,
+        "stocks": stocks,
+        "prices": {"updated": stocks, "failed": []},
+        "enabled_sources": [source for source in db.list_rows("expert_source") if source.get("enabled")],
+        "global_news": {"items": [], "sources": [], "errors": []},
+    }
+    try:
+        from .services.codex_runner import run_codex_schedule_analysis
+        result = run_codex_schedule_analysis(payload.run_type, payload.target, context)
+    except Exception:
+        # 실패 시 기존처럼 dry-run 또는 fallback 리포트 생성
+        result = run_dry_analysis(payload.run_type, payload.target, payload.agent_role)
     return result["run"]
 
 

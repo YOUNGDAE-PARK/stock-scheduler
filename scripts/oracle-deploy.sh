@@ -32,6 +32,8 @@ if [[ ! -f "$DEPLOY_COMPOSE_FILE" ]]; then
   exit 1
 fi
 
+touch "$APP_DIR/stock_scheduler.db"
+
 if docker compose version >/dev/null 2>&1; then
   COMPOSE=(docker compose)
 else

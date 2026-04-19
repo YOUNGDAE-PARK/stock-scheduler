@@ -21,12 +21,14 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://stock_scheduler:${POSTGRES_PASSWORD:-stock_scheduler}@db:5432/stock_scheduler
       CODEX_HOME: /root/.codex
-      CODEX_BIN: /usr/local/bin/codex
+      GEMINI_HOME: /root/.gemini
+    network_mode: host
     restart: unless-stopped
     volumes:
       - ./secrets/codex/auth.json:/root/.codex/auth.json:ro
+      - /home/eins777/.gemini:/root/.gemini
+      - ./stock_scheduler.db:/app/stock_scheduler.db
     depends_on:
       db:
         condition: service_healthy

@@ -23,6 +23,8 @@ KNOWN_EXPERT_SOURCES = {
     }
 }
 KNOWN_STOCKS = {
+    "삼성전자": {"ticker": "005930", "market": "KR", "name": "삼성전자"},
+    "SK하이닉스": {"ticker": "000660", "market": "KR", "name": "SK하이닉스"},
     "ACE AI반도체TOP3+": {"ticker": "469150", "market": "KR", "name": "ACE AI반도체TOP3+"},
     "KODEX 200": {"ticker": "069500", "market": "KR", "name": "KODEX 200"},
     "KODEX 코스피100": {"ticker": "237350", "market": "KR", "name": "KODEX 코스피100"},
@@ -44,7 +46,8 @@ class OrchestratorError(RuntimeError):
 
 
 def parse_and_execute(text: str, execute: bool = True) -> Dict[str, Any]:
-    if not text.strip():
+    text = text.strip()
+    if not text:
         return {
             "status": "needs_confirmation",
             "intent": "empty",
@@ -57,7 +60,7 @@ def parse_and_execute(text: str, execute: bool = True) -> Dict[str, Any]:
         return {
             "status": "needs_confirmation",
             "intent": "orchestrator_error",
-            "message": f"Codex orchestrator가 요청을 해석하지 못했습니다. 조금 더 구체적으로 말해주세요. ({exc})",
+            "message": f"Orchestrator가 요청을 해석하지 못했습니다. 조금 더 구체적으로 말해주세요. ({exc})",
             "result": None,
         }
     return execute_plan(plan, execute=execute)
@@ -69,38 +72,86 @@ def plan_command(text: str) -> Dict[str, Any]:
     with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as output:
         output_path = Path(output.name)
     try:
-        completed = subprocess.run(
-            [
-                settings.codex_bin,
+        is_gemini = settings.orchestrator_type.lower() == "gemini"
+        args = [settings.gemini_bin if is_gemini else settings.codex_bin]
+
+        if is_gemini:
+            args.extend(["-p", prompt, "--output-format", "json", "--approval-mode", "plan"])
+        else:
+            args.extend([
                 "exec",
-                "--cd",
-                str(BASE_DIR),
+                "--cd", str(BASE_DIR),
                 "--skip-git-repo-check",
-                "--sandbox",
-                "read-only",
-                "--output-schema",
-                str(SCHEMA_PATH),
-                "--output-last-message",
-                str(output_path),
-                prompt,
-            ],
+                "--sandbox", "read-only",
+                "--output-schema", str(SCHEMA_PATH),
+                "--output-last-message", str(output_path),
+                prompt
+            ])
+
+        completed = subprocess.run(
+            args,
             check=False,
             capture_output=True,
             input="",
             text=True,
             timeout=180,
             start_new_session=True,
+            cwd=str(BASE_DIR) if is_gemini else None
         )
+
         if completed.returncode != 0:
-            raise OrchestratorError((completed.stderr or completed.stdout or "codex exec failed").strip())
-        raw = output_path.read_text(encoding="utf-8").strip()
-        if not raw:
-            raise OrchestratorError("empty codex response")
-        return json.loads(raw)
+            raise OrchestratorError(_summarize_orchestrator_error(completed.stderr or completed.stdout or "orchestrator exec failed"))
+
+        if is_gemini:
+            raw = completed.stdout.strip()
+            if not raw:
+                raise OrchestratorError("empty gemini response")
+            try:
+                # 1. 전체 응답 파싱
+                full_data = json.loads(raw)
+                # 2. response 필드 추출 (Gemini CLI 특성)
+                inner_raw = full_data.get("response", "").strip()
+
+                import re
+                json_matches = re.findall(r"\{.*\}", inner_raw, re.DOTALL)
+                if json_matches:
+                    plan = json.loads(json_matches[-1])
+                else:
+                    plan = json.loads(inner_raw)
+
+                # 필수 필드 보정
+                if "action" not in plan and "intent" in plan:
+                    plan["action"] = plan["intent"]
+                return plan
+            except (json.JSONDecodeError, KeyError, AttributeError):
+                # 구형 파싱 방식 유지 (폴백)
+                import re
+                json_matches = re.findall(r"\{.*\}", raw, re.DOTALL)
+                if not json_matches:
+                    raise OrchestratorError("no JSON found in gemini output")
+                plan = json.loads(json_matches[-1])
+                # 만약 파싱된 결과에 response가 있다면 한 번 더 시도
+                if "response" in plan and isinstance(plan["response"], str):
+                    try:
+                        inner_raw = plan["response"].strip()
+                        inner_matches = re.findall(r"\{.*\}", inner_raw, re.DOTALL)
+                        if inner_matches:
+                            plan = json.loads(inner_matches[-1])
+                    except:
+                        pass
+
+                if "action" not in plan and "intent" in plan:
+                    plan["action"] = plan["intent"]
+                return plan
+        else:
+            raw = output_path.read_text(encoding="utf-8").strip()
+            if not raw:
+                raise OrchestratorError("empty codex response")
+            return json.loads(raw)
     except subprocess.TimeoutExpired as exc:
-        raise OrchestratorError("codex exec timeout") from exc
+        raise OrchestratorError("orchestrator exec timeout") from exc
     except json.JSONDecodeError as exc:
-        raise OrchestratorError("codex response was not valid JSON") from exc
+        raise OrchestratorError("orchestrator response was not valid JSON") from exc
     finally:
         output_path.unlink(missing_ok=True)
 
@@ -109,25 +160,28 @@ def build_prompt(text: str) -> str:
     skill = SKILL_PATH.read_text(encoding="utf-8")
     capabilities = (BASE_DIR / "docs" / "API.md").read_text(encoding="utf-8")
     return f"""
-You are the stock_scheduler API orchestrator.
+You are the stock_scheduler API orchestrator. Your task is to map user natural language into structured JSON actions.
 
-Follow this skill exactly:
+### INSTRUCTIONS
+1. Follow the <skill> exactly.
+2. Use the <api_docs> as the source of truth for supported actions.
+3. Your output MUST be a SINGLE JSON object matching the required schema.
+4. DO NOT include any text before or after the JSON object.
+5. DO NOT use markdown code blocks (```json) for the JSON itself.
+6. Infer ticker/market/quantity/price as per the examples.
 
 <skill>
 {skill}
 </skill>
 
-Use these current API docs as the source of truth:
-
 <api_docs>
 {capabilities}
 </api_docs>
 
-Return only a JSON object matching the output schema.
-Do not execute shell commands. Do not edit files. Do not invent unsupported backend features.
-
 User request:
 {text}
+
+Return ONLY the JSON object.
 """.strip()
 
 
@@ -462,21 +516,29 @@ def _run_analysis(slots: Dict[str, Any], message: str) -> Dict[str, Any]:
     if missing:
         return _needs_slots("run_analysis", f"분석 실행에 필요한 정보가 부족합니다: {missing}")
     target = _stock_payload(slots)
-    run = db.insert(
-        "codex_run",
-        {
-            "run_type": "manual_codex_analysis",
-            "target": target,
-            "agent_role": "final-investment-opinion",
-            "prompt_path": "",
-            "output_path": "",
-            "status": "dry_run_completed",
-            "started_at": db.utc_now(),
-            "finished_at": db.utc_now(),
-            "error": None,
-        },
-    )
-    return _executed("run_analysis", message or f"{target['name']}({target['ticker']}) dry-run 분석을 실행했습니다.", run)
+
+    # 실제 분석 실행을 위해 context 구성
+    stocks = [target]
+    context = {
+        "schedule": {"name": "자연어 명령 분석", "schedule_type": "manual_codex_analysis"},
+        "target": target,
+        "stocks": stocks,
+        "prices": {"updated": stocks, "failed": []},
+        "enabled_sources": [source for source in db.list_rows("expert_source") if source.get("enabled")],
+        "global_news": {"items": [], "sources": [], "errors": []},
+    }
+
+    try:
+        from .services.codex_runner import run_codex_schedule_analysis
+        result = run_codex_schedule_analysis("manual_codex_analysis", target, context)
+        run = result["run"]
+        return _executed("run_analysis", message or f"{target['name']}({target['ticker']}) 분석을 완료했습니다.", run)
+    except Exception as exc:
+        # 실패 시 dry-run으로 기록
+        from .services.codex_runner import run_dry_analysis
+        result = run_dry_analysis("manual_codex_analysis", target, "final-investment-opinion")
+        run = result["run"]
+        return _executed("run_analysis", message or f"{target['name']}({target['ticker']}) 분석 중 오류가 발생하여 드라이 런으로 기록했습니다. ({exc})", run)
 
 
 def _filter_by_ticker(rows: list, ticker: Optional[str]) -> list:
@@ -540,3 +602,14 @@ def _executed(intent: str, message: str, result: Any) -> Dict[str, Any]:
 
 def _needs_slots(intent: str, message: str) -> Dict[str, Any]:
     return {"status": "needs_confirmation", "intent": intent, "message": message, "result": None}
+
+
+def _summarize_orchestrator_error(output: str) -> str:
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    usage_limit = next((line for line in lines if "usage limit" in line.lower()), "")
+    if usage_limit:
+        return usage_limit
+    error_line = next((line for line in lines if line.lower().startswith("error")), "")
+    if error_line:
+        return error_line[:500]
+    return (lines[-1] if lines else "orchestrator exec failed")[:500]

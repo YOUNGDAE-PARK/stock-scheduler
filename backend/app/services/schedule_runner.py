@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from .. import db
-from .codex_runner import CodexAnalysisError, run_codex_schedule_analysis
+from .codex_runner import OrchestratorAnalysisError, run_codex_schedule_analysis
 from .kis import KisApiError, get_kis_client
 from .news import collect_global_news
 from .notifications import send_notification
@@ -75,7 +75,9 @@ def _send_report_notification(
     report: Dict[str, Any],
     run: Dict[str, Any],
 ) -> Dict[str, Any]:
-    status_label = "Codex 분석 완료" if run.get("status") == "completed" else "Codex 분석 실패, fallback 리포트 생성"
+    from ..config import get_settings
+    orch_label = get_settings().orchestrator_type.capitalize()
+    status_label = f"{orch_label} 분석 완료" if run.get("status") == "completed" else f"{orch_label} 분석 실패, fallback 리포트 생성"
     body = "\n".join(
         [
             status_label,
@@ -124,7 +126,7 @@ def _create_schedule_report(
     }
     try:
         return run_codex_schedule_analysis(schedule["schedule_type"], target, context)
-    except CodexAnalysisError as exc:
+    except OrchestratorAnalysisError as exc:
         return _create_fallback_report(schedule, target, stocks, price_result, str(exc), global_news)
 
 
@@ -172,56 +174,22 @@ def _build_report_markdown(
     error: str,
     global_news: Dict[str, Any],
 ) -> str:
-    updated = price_result["updated"]
-    failed = price_result["failed"]
+    from ..config import get_settings
+    orch_label = get_settings().orchestrator_type.capitalize()
+
+    # 분석 엔진 실패 시에는 잘못된 투자 판단을 만들지 않고 실패 원인만 전달한다.
     lines = [
-        f"# {schedule['name']} 실행 리포트",
+        f"# {schedule['name']} 실행 결과",
         "",
-        f"- 스케줄 타입: `{schedule['schedule_type']}`",
-        f"- 대상: `{schedule['target_type']}`",
-        f"- 대상 종목 수: {len(stocks)}",
-        f"- 현재가 갱신 성공: {len(updated)}",
-        f"- 현재가 갱신 실패: {len(failed)}",
-        f"- Codex 분석 실패: `{error}`",
+        f"⚠️ **{orch_label} 분석에 실패했습니다.**",
         "",
-        "## 현재가",
+        "## 오류 내용",
+        f"```text\n{error}\n```",
         "",
+        "## 다음 액션",
+        "- 분석 엔진(Gemini/Codex)의 상태나 설정을 확인해 주세요.",
+        "- 잠시 후 다시 시도하거나 수동으로 가격을 확인하시기 바랍니다.",
     ]
-    if updated:
-        for item in updated:
-            lines.append(f"- {item['name']}({item['ticker']}, {item['market']}): {item['price']}")
-    else:
-        lines.append("- 갱신된 현재가가 없습니다.")
-
-    if failed:
-        lines.extend(["", "## 실패", ""])
-        for item in failed:
-            lines.append(f"- {item['name']}({item['ticker']}): {item['error']}")
-
-    if schedule["schedule_type"] == "global_news_digest":
-        lines.extend(_build_global_news_fallback_sections(global_news, stocks, price_result))
-
-    if schedule["schedule_type"] == "interest_area_research_watch":
-        areas = [area for area in db.list_rows("interest_area") if area.get("enabled")]
-        lines.extend(["", "## 관심분야", ""])
-        if areas:
-            for area in areas:
-                tickers = ", ".join(area.get("linked_tickers") or []) or "-"
-                keywords = ", ".join(area.get("keywords") or []) or "-"
-                lines.append(f"- {area['name']}({area['category']}): 키워드 {keywords}, 연결 종목 {tickers}")
-        else:
-            lines.append("- 활성화된 관심분야가 없습니다.")
-        lines.append("- 연구성과 수집 provider는 아직 연결 전이라 주요 성과 감지를 보류했습니다.")
-
-    lines.extend(
-        [
-            "",
-            "## 다음 액션",
-            "",
-            "- 가격 갱신 결과와 보유/관심종목 변화를 확인하세요.",
-            "- 뉴스/공시/SNS 수집 provider가 연결되면 리포트 근거를 확장합니다.",
-        ]
-    )
     return "\n".join(lines)
 
 
@@ -401,12 +369,14 @@ def _build_global_news_fallback_sections(
     else:
         lines.append("- 연결된 보유/관심종목이 없어 시장/섹터 관점만 제공합니다.")
 
+    from ..config import get_settings
+    orch_label = get_settings().orchestrator_type.capitalize()
     lines.extend(
         [
             "",
             "## 리스크",
             "",
-            "- Codex 심층 분석 실패로 헤드라인 간 인과관계와 원문 세부 수치는 제한적으로만 반영됐습니다.",
+            f"- {orch_label} 심층 분석 실패로 헤드라인 간 인과관계와 원문 세부 수치는 제한적으로만 반영됐습니다.",
             "- 금리, 환율, 원자재, 반도체 뉴스가 같은 방향으로 확인될 때만 포지션을 키우는 쪽이 낫습니다.",
         ]
     )

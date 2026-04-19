@@ -5,19 +5,31 @@ ARG CODEX_CLI_VERSION=0.120.0
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV CODEX_HOME=/root/.codex
+ENV GEMINI_HOME=/root/.gemini
 ENV CODEX_BIN=/usr/local/bin/codex
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends nodejs npm \
-    && npm install -g @openai/codex@${CODEX_CLI_VERSION} \
-    && mkdir -p /root/.codex \
-    && rm -rf /var/lib/apt/lists/*
+# 1. 시스템 패키지 설치 (자주 바뀌지 않는 레이어)
+# BuildKit 캐시 마운트를 사용하여 apt 패키지 다운로드 속도를 높입니다.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    nodejs \
+    npm \
+    && mkdir -p /root/.codex /root/.gemini
 
+# 2. 글로벌 npm 패키지 설치 (별도 레이어 분리)
+# 한번 설치되면 Dockerfile의 이 줄이 바뀌지 않는 한 캐시를 사용합니다.
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    npm install -g @openai/codex@${CODEX_CLI_VERSION} @google/gemini-cli
+
+# 3. Python 의존성 설치 (requirements.txt가 바뀔 때만 실행)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
+# 4. 소스 코드 복사 (가장 자주 바뀌는 부분, 마지막에 배치)
 COPY backend ./backend
 COPY codex_schemas ./codex_schemas
 COPY codex_skills ./codex_skills

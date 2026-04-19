@@ -48,17 +48,24 @@ jobs:
           OCI_SSH_PRIVATE_KEY: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          ORCHESTRATOR_TYPE: ${{ vars.ORCHESTRATOR_TYPE || 'gemini' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           test -n "$OCI_HOST"
           test -n "$OCI_USER"
           test -n "$OCI_SSH_PRIVATE_KEY"
           test -n "$TELEGRAM_CHAT_ID"
           test -n "$CODEX_AUTH_JSON"
+          if [ "$ORCHESTRATOR_TYPE" = "gemini" ]; then
+            test -n "$GEMINI_API_KEY"
+          fi
 
       - name: Create production env
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
+          ORCHESTRATOR_TYPE: ${{ vars.ORCHESTRATOR_TYPE || 'gemini' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           KIS_REAL_APP_KEY: ${{ secrets.KIS_REAL_APP_KEY }}
           KIS_REAL_APP_SECRET: ${{ secrets.KIS_REAL_APP_SECRET }}
           KIS_VIRTUAL_APP_KEY: ${{ secrets.KIS_VIRTUAL_APP_KEY }}
@@ -68,7 +75,10 @@ jobs:
         run: |
           cat > /tmp/stock_scheduler.env <<EOF
           POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          ORCHESTRATOR_TYPE=${ORCHESTRATOR_TYPE}
+          GEMINI_API_KEY=${GEMINI_API_KEY}
           CODEX_BIN=/usr/local/bin/codex
+          GEMINI_BIN=gemini
           CORS_ALLOW_ORIGINS=http://${{ vars.OCI_HOST }}:5173
           NOTIFICATION_MODE=telegram
           TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}

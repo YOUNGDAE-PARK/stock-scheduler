@@ -8,7 +8,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", populate_by_name=True)
 
     database_url: str = Field(default="sqlite:///./stock_scheduler.db", alias="DATABASE_URL")
+    orchestrator_type: str = Field(default="codex", alias="ORCHESTRATOR_TYPE")
     codex_bin: str = Field(default="/usr/bin/codex", alias="CODEX_BIN")
+    gemini_bin: str = Field(default="gemini", alias="GEMINI_BIN")
     cors_allow_origins: str = Field(default="", alias="CORS_ALLOW_ORIGINS")
     notification_mode: str = Field(default="dry-run", alias="NOTIFICATION_MODE")
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")

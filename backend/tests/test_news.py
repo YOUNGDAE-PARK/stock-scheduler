@@ -114,7 +114,7 @@ def test_global_news_schedule_passes_news_items_to_codex(monkeypatch, tmp_path):
     assert "enabled_sources" in captured["context"]
 
 
-def test_global_news_fallback_is_investment_oriented():
+def test_global_news_fallback_reports_orchestrator_error_only():
     from backend.app.services.schedule_runner import _build_report_markdown
 
     markdown = _build_report_markdown(
@@ -135,7 +135,7 @@ def test_global_news_fallback_is_investment_oriented():
         },
     )
 
-    assert "## 최종 투자 관점" in markdown
-    assert "## 보유/관심종목 액션" in markdown
-    assert "AI chip demand rises" in markdown
-    assert "삼성전자(005930)" in markdown
+    assert "## 오류 내용" in markdown
+    assert "codex missing" in markdown
+    assert "## 최종 투자 관점" not in markdown
+    assert "AI chip demand rises" not in markdown

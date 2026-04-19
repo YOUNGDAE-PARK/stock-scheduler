@@ -6,15 +6,15 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: sqlite:////data/stock_scheduler.db
+      DATABASE_URL: sqlite:////app/stock_scheduler.db
       CODEX_HOME: /root/.codex
-      CODEX_BIN: /usr/local/bin/codex
+      GEMINI_HOME: /root/.gemini
     volumes:
-      - sqlite_data:/data
+      - ./stock_scheduler.db:/app/stock_scheduler.db
       - ./secrets/codex/auth.json:/root/.codex/auth.json:ro
+      - /home/ubuntu/.gemini:/root/.gemini
+    network_mode: host
     restart: unless-stopped
-    ports:
-      - "8000:8000"
 
   frontend:
     build:

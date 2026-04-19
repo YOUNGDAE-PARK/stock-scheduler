@@ -2,7 +2,7 @@ import json
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from .. import db
 from ..config import get_settings
@@ -18,7 +18,7 @@ SCHEDULE_SKILLS = {
 }
 
 
-class CodexAnalysisError(RuntimeError):
+class OrchestratorAnalysisError(RuntimeError):
     pass
 
 
@@ -65,6 +65,13 @@ def run_dry_analysis(run_type: str, target: Dict[str, Any], agent_role: str) -> 
     return {"run": run, "report": report}
 
 
+def _get_orchestrator_cmd() -> List[str]:
+    settings = get_settings()
+    if settings.orchestrator_type.lower() == "gemini":
+        return [settings.gemini_bin]
+    return [settings.codex_bin]
+
+
 def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     started = db.utc_now()
     skill_path = _schedule_skill_path(run_type)
@@ -87,58 +94,109 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
         },
     )
     try:
-        completed = subprocess.run(
-            [
-                get_settings().codex_bin,
+        cmd = _get_orchestrator_cmd()
+        is_gemini = "gemini" in cmd[0].lower()
+
+        args = [*cmd]
+        if is_gemini:
+            # Gemini CLI: gemini -p "prompt" --output-format json
+            args.extend(["-p", prompt, "--output-format", "json", "--approval-mode", "plan"])
+        else:
+            # Codex CLI: codex exec ...
+            args.extend([
                 "exec",
-                "--cd",
-                str(BASE_DIR),
+                "--cd", str(BASE_DIR),
                 "--skip-git-repo-check",
-                "--sandbox",
-                "read-only",
-                "--output-schema",
-                str(SCHEDULE_ANALYSIS_SCHEMA_PATH),
-                "--output-last-message",
-                str(output_path),
-                prompt,
-            ],
+                "--sandbox", "read-only",
+                "--output-schema", str(SCHEDULE_ANALYSIS_SCHEMA_PATH),
+                "--output-last-message", str(output_path),
+                prompt
+            ])
+
+        completed = subprocess.run(
+            args,
             check=False,
             capture_output=True,
             input="",
             text=True,
             timeout=180,
             start_new_session=True,
+            cwd=str(BASE_DIR) if is_gemini else None
         )
+
         if completed.returncode != 0:
-            raise CodexAnalysisError(_summarize_codex_error(completed.stderr or completed.stdout or "codex exec failed"))
-        raw = output_path.read_text(encoding="utf-8").strip()
-        if not raw:
-            raise CodexAnalysisError("empty codex response")
-        parsed = json.loads(raw)
+            raise OrchestratorAnalysisError(_summarize_codex_error(completed.stderr or completed.stdout or "orchestrator exec failed"))
+
+        if is_gemini:
+            # Gemini는 stdout에서 JSON을 읽음
+            raw = completed.stdout.strip()
+            if not raw:
+                raise OrchestratorAnalysisError("empty gemini response")
+            try:
+                import re
+                # 1. 전체 응답 파싱
+                full_data = json.loads(raw)
+                # 2. response 필드 추출 (Gemini CLI 특성)
+                inner_raw = full_data.get("response", "").strip()
+
+                # 3. response 필드 내의 JSON 추출 및 파싱
+                json_matches = re.findall(r"\{.*\}", inner_raw, re.DOTALL)
+                if json_matches:
+                    parsed = json.loads(json_matches[-1])
+                else:
+                    # 필드가 직접 JSON이 아닐 경우 전체 response 시도
+                    parsed = json.loads(inner_raw)
+            except (json.JSONDecodeError, KeyError, AttributeError):
+                # 구형 파싱 방식 유지 (폴백)
+                json_matches = re.findall(r"\{.*\}", raw, re.DOTALL)
+                if not json_matches:
+                    raise OrchestratorAnalysisError("no JSON found in gemini output")
+                parsed = json.loads(json_matches[-1])
+                # 만약 파싱된 결과에 response가 있다면 한 번 더 시도
+                if "response" in parsed and isinstance(parsed["response"], str):
+                    try:
+                        inner_raw = parsed["response"].strip()
+                        inner_matches = re.findall(r"\{.*\}", inner_raw, re.DOTALL)
+                        if inner_matches:
+                            parsed = json.loads(inner_matches[-1])
+                    except:
+                        pass
+        else:
+            # Codex는 지정된 파일에서 읽음
+            raw = output_path.read_text(encoding="utf-8").strip()
+            if not raw:
+                raise OrchestratorAnalysisError("empty codex response")
+            parsed = json.loads(raw)
+
         run = db.update_row(
             "codex_run",
             run["id"],
             {"status": "completed", "finished_at": db.utc_now(), "error": None},
         )
+
+        # 필드 유무 확인 및 기본값 처리
+        title = parsed.get("title") or parsed.get("subject") or f"{run_type} report"
+        markdown = parsed.get("markdown") or parsed.get("content") or parsed.get("body") or "No content generated."
+
         report = db.insert(
             "report",
             {
                 "report_type": run_type,
                 "target": target,
-                "title": parsed["title"],
-                "markdown": parsed["markdown"],
+                "title": title,
+                "markdown": markdown,
                 "codex_run_id": run["id"],
                 "created_at": db.utc_now(),
             },
         )
         return {"run": run, "report": report, "analysis": parsed}
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, CodexAnalysisError, OSError) as exc:
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OrchestratorAnalysisError, OSError) as exc:
         run = db.update_row(
             "codex_run",
             run["id"],
             {"status": "failed", "finished_at": db.utc_now(), "error": str(exc)},
         )
-        raise CodexAnalysisError(str(exc)) from exc
+        raise OrchestratorAnalysisError(str(exc)) from exc
     finally:
         output_path.unlink(missing_ok=True)
 
@@ -146,21 +204,28 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
 def _build_schedule_analysis_prompt(context: Dict[str, Any], skill_path: Path) -> str:
     skill = skill_path.read_text(encoding="utf-8")
     return f"""
-You are generating a stock_scheduler schedule analysis report.
+You are a stock market analyst. Your task is to generate a structured report in JSON format.
 
-Follow this skill exactly:
+### INSTRUCTIONS
+1. Follow the provided <skill> exactly to analyze the <context>.
+2. Your output MUST be a SINGLE JSON object matching this schema:
+   - "title": A concise title for the report.
+   - "markdown": The full report content in Korean Markdown.
+   - "major_signal_detected": (boolean) True if an urgent signal is found.
+   - "notification_summary": (string) A short summary for mobile notifications.
+3. DO NOT include any text before or after the JSON object.
+4. DO NOT use markdown code blocks (```json) for the JSON itself.
+5. ENSURE the "markdown" field is NOT EMPTY and contains the full analysis.
 
 <skill>
 {skill}
 </skill>
 
-Use only this JSON context:
-
 <context>
 {json.dumps(context, ensure_ascii=False, indent=2)}
 </context>
 
-Return only a JSON object matching the schema.
+Return ONLY the JSON object.
 """.strip()
 
 

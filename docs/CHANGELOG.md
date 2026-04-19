@@ -85,3 +85,25 @@
 - 1GB Oracle 무료 VM용 SQLite 기반 lite compose와 SQLite 백업 스크립트를 추가했다.
 - Oracle bootstrap에서 서버 iptables 5173/8000 허용 규칙을 저장하도록 했다.
 - 운영 frontend public origin을 `CORS_ALLOW_ORIGINS`로 주입해 브라우저 CORS preflight 실패를 막도록 했다.
+
+## 2026-04-19
+
+### Added
+- `Gemini CLI` (@google/gemini-cli) 오케스트레이터 지원을 추가했다.
+- `.env` 설정으로 Codex와 Gemini를 전환할 수 있는 `ORCHESTRATOR_TYPE` 환경 변수를 추가했다.
+- 빌드와 재배포를 한 번에 처리하는 `scripts/redeploy.sh` 스크립트를 추가했다.
+
+### Changed
+- 모든 자연어 명령 해석을 인위적인 파싱 없이 LLM 오케스트레이터에게 전적으로 위임하도록 복원했다.
+- 분석 실패 리포트를 사용자 요청에 따라 핵심 오류 내용 위주로 간소화했다.
+- Gemini CLI의 중첩된 JSON 응답 구조를 자동으로 감지하고 파싱하도록 개선했다.
+
+### Fixed
+- Codex 사용량 제한 시 발생하던 서버 내부 오류와 가독성 낮은 에러 메시지를 정제했다.
+- 컨테이너 재빌드 시 SQLite 데이터가 초기화되던 볼륨 설정 오류를 수정했다.
+- Docker 컨테이너 내부에서 텔레그램 API 서버에 접속하지 못하던 네트워크 오류를 해결했다.
+
+### Infrastructure
+- `Dockerfile.backend`에 BuildKit 캐시 마운트를 적용하여 빌드 속도를 획기적으로 개선했다.
+- `docker-compose.yml`을 수정하여 Gemini 인증 정보와 SQLite DB 영속성을 보장했다.
+- Oracle lite 배포에서 SQLite bind mount 파일을 사전 생성하고 host network backend의 중복 port mapping을 제거했다.

@@ -38,10 +38,6 @@
   - 관련: `/api/commands`
   - 완료 기준: 관심종목/보유종목/전문가 소스/Codex 설정 등록, 삭제, 수정 명령과 애매한 명령 확인 흐름이 정의됨
 
-- `[Todo] [P1] 실제 Codex CLI 분석 skill/pipeline 연결`
-  - 관련: `docs/CODEX_PIPELINE.md`
-  - 완료 기준: skill 경로, prompt 입력, output schema, timeout/failure 정책이 구현되고 dry-run runner를 대체할 수 있음
-
 - `[Done] [P1] FCM/SMTP dry-run provider scaffold 구현`
   - 관련: Notifications/Email
   - 완료 기준: 실제 발송 전 payload 검증과 fallback 동작을 테스트할 수 있음
@@ -49,10 +45,6 @@
 - `[Done] [P1] Galaxy S24 PWA 화면 구조 scaffold 구현`
   - 관련: Frontend PWA
   - 완료 기준: 관심종목, 보유종목, 스케줄, 알림 이력, 분석 리포트, 경제뉴스 소스, Codex 분석 설정 화면 구조가 정의됨
-
-- `[Todo] [P1] 실제 스케줄 job 구현`
-  - 관련: `stock_report`, `price_alert_watch`, `global_news_digest`, `manual_codex_analysis`
-  - 완료 기준: APScheduler가 DB schedule을 읽어 각 job을 실행하고 실행 로그를 남김
 
 - `[Todo] [P1] 시장 데이터 provider adapter 구현`
   - 관련: KIS, Alpha Vantage, Marketaux
@@ -69,6 +61,14 @@
   - 완료 기준: v1 제외 범위를 유지하면서 v2 후보 요구사항이 별도 기록됨
 
 ## Done
+
+- `[Done] [P1] 실제 Codex/Gemini CLI 분석 skill/pipeline 연결`
+  - 관련: `docs/CODEX_PIPELINE.md`
+  - 완료 기준: skill 경로, prompt 입력, output schema, timeout/failure 정책이 구현되고 실제 분석 리포트를 생성함
+
+- `[Done] [P1] 실제 스케줄 job 구현`
+  - 관련: `stock_report`, `price_alert_watch`, `global_news_digest`, `manual_codex_analysis`
+  - 완료 기준: APScheduler가 DB schedule을 읽어 각 job을 실행하고 실행 로그를 남김
 
 - `[Done] [P0] TODO/HISTORY 문서 관리 체계 추가`
   - 관련: `docs/TODO.md`, `docs/HISTORY.md`, `docs/CHANGELOG.md`
