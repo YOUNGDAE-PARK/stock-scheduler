@@ -19,4 +19,11 @@ sudo usermod -aG docker "$USER" || true
 sudo mkdir -p /opt/stock_scheduler
 sudo chown -R "$USER:$USER" /opt/stock_scheduler
 
+sudo iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport 5173 -j ACCEPT 2>/dev/null \
+  || sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport 5173 -j ACCEPT
+sudo iptables -C INPUT -p tcp -m state --state NEW -m tcp --dport 8000 -j ACCEPT 2>/dev/null \
+  || sudo iptables -I INPUT 5 -p tcp -m state --state NEW -m tcp --dport 8000 -j ACCEPT
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent netfilter-persistent
+sudo netfilter-persistent save
+
 echo "Oracle VM bootstrap complete. Log out and back in if docker requires group refresh."

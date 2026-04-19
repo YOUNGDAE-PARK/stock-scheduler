@@ -20,6 +20,8 @@ bash scripts/oracle-bootstrap.sh
 
 GitHub Actions가 배포를 수행하므로 서버에는 `/opt/stock_scheduler` 디렉터리와 Docker만 준비되면 된다.
 
+서버 내부 방화벽도 5173/8000을 허용해야 한다. `oracle-bootstrap.sh`는 iptables에 5173/8000 허용 규칙을 추가하고 `netfilter-persistent`로 저장한다.
+
 ## 2. GitHub Secrets
 
 이미 설정한 앱 secret 외에 배포용 secret/variable이 추가로 필요하다.
@@ -81,4 +83,24 @@ curl http://localhost:8000/api/diagnostics/codex
 
 ```text
 http://<OCI_HOST>:5173/
+```
+
+서버 내부에서는 응답하지만 외부 접속이 timeout이면 Oracle Console에서 다음 경로를 확인한다.
+
+```text
+Networking → Virtual cloud networks → <VCN> → Security Lists → Default Security List → Add Ingress Rules
+```
+
+필수 ingress rule:
+
+```text
+Source CIDR: 0.0.0.0/0
+IP Protocol: TCP
+Destination Port Range: 5173
+```
+
+```text
+Source CIDR: 0.0.0.0/0
+IP Protocol: TCP
+Destination Port Range: 8000
 ```

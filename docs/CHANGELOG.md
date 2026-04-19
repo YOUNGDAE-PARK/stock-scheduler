@@ -83,3 +83,4 @@
 - GitHub Actions CI workflow와 Oracle Cloud 수동 배포 workflow를 추가했다.
 - Oracle VM Docker bootstrap/deploy 스크립트와 CI/CD 문서를 추가했다.
 - 1GB Oracle 무료 VM용 SQLite 기반 lite compose와 SQLite 백업 스크립트를 추가했다.
+- Oracle bootstrap에서 서버 iptables 5173/8000 허용 규칙을 저장하도록 했다.
