@@ -1,0 +1,14 @@
+# Optional WSL workaround.
+# Use only if containers cannot reach each other over Docker bridge networking.
+#
+# docker-compose -f docker-compose.yml -f docker-compose.wsl.yml up -d --build
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  backend:
+    network_mode: host
+    ports: !reset []
+    environment:
+      DATABASE_URL: postgresql://stock_scheduler:stock_scheduler@127.0.0.1:5432/stock_scheduler

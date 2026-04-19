@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "intent", "action", "message", "slots"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["executed", "needs_confirmation", "unsupported"]
+    },
+    "intent": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "create_interest",
+        "list_interest",
+        "delete_interest",
+        "create_holding",
+        "list_holding",
+        "delete_holding",
+        "create_interest_area",
+        "list_interest_area",
+        "delete_interest_area",
+        "create_expert_source",
+        "list_expert_source",
+        "delete_expert_source",
+        "list_schedule",
+        "test_notification",
+        "run_analysis",
+        "batch",
+        "guide",
+        "unsupported"
+      ]
+    },
+    "message": {
+      "type": "string"
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ticker",
+        "market",
+        "name",
+        "quantity",
+        "avg_price",
+        "buy_date",
+        "target_price",
+        "stop_loss_price",
+        "tags",
+        "keywords",
+        "linked_tickers",
+        "memo",
+        "url",
+        "platform",
+        "category",
+        "enabled",
+        "target",
+        "title",
+        "body",
+        "payload",
+        "items"
+      ],
+      "properties": {
+        "ticker": { "type": ["string", "null"] },
+        "market": { "type": ["string", "null"], "enum": ["KR", "US", null] },
+        "name": { "type": ["string", "null"] },
+        "quantity": { "type": ["number", "null"] },
+        "avg_price": { "type": ["number", "null"] },
+        "buy_date": { "type": ["string", "null"] },
+        "target_price": { "type": ["number", "null"] },
+        "stop_loss_price": { "type": ["number", "null"] },
+        "tags": { "type": ["array", "null"], "items": { "type": "string" } },
+        "keywords": { "type": ["array", "null"], "items": { "type": "string" } },
+        "linked_tickers": { "type": ["array", "null"], "items": { "type": "string" } },
+        "memo": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] },
+        "platform": { "type": ["string", "null"] },
+        "category": { "type": ["string", "null"] },
+        "enabled": { "type": ["boolean", "null"] },
+        "target": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "body": { "type": ["string", "null"] },
+        "payload": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "source": { "type": ["string", "null"] }
+          },
+          "required": ["source"]
+        },
+        "items": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "slots"],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "create_interest",
+                  "delete_interest",
+                  "create_holding",
+                  "delete_holding",
+                  "create_interest_area",
+                  "delete_interest_area",
+                  "create_expert_source",
+                  "delete_expert_source"
+                ]
+              },
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "ticker",
+                  "market",
+                  "name",
+                  "quantity",
+                  "avg_price",
+                  "buy_date",
+                  "target_price",
+                  "stop_loss_price",
+                  "tags",
+                  "keywords",
+                  "linked_tickers",
+                  "memo",
+                  "url",
+                  "platform",
+                  "category",
+                  "enabled",
+                  "target",
+                  "title",
+                  "body",
+                  "payload"
+                ],
+                "properties": {
+                  "ticker": { "type": ["string", "null"] },
+                  "market": { "type": ["string", "null"], "enum": ["KR", "US", null] },
+                  "name": { "type": ["string", "null"] },
+                  "quantity": { "type": ["number", "null"] },
+                  "avg_price": { "type": ["number", "null"] },
+                  "buy_date": { "type": ["string", "null"] },
+                  "target_price": { "type": ["number", "null"] },
+                  "stop_loss_price": { "type": ["number", "null"] },
+                  "tags": { "type": ["array", "null"], "items": { "type": "string" } },
+                  "keywords": { "type": ["array", "null"], "items": { "type": "string" } },
+                  "linked_tickers": { "type": ["array", "null"], "items": { "type": "string" } },
+                  "memo": { "type": ["string", "null"] },
+                  "url": { "type": ["string", "null"] },
+                  "platform": { "type": ["string", "null"] },
+                  "category": { "type": ["string", "null"] },
+                  "enabled": { "type": ["boolean", "null"] },
+                  "target": { "type": ["string", "null"] },
+                  "title": { "type": ["string", "null"] },
+                  "body": { "type": ["string", "null"] },
+                  "payload": {
+                    "type": ["object", "null"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "source": { "type": ["string", "null"] }
+                    },
+                    "required": ["source"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

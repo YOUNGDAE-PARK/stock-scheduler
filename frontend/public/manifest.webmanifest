@@ -1,0 +1,17 @@
+{
+  "name": "stock_scheduler",
+  "short_name": "Stocks",
+  "description": "관심종목, 보유종목, 스케줄, 알림, 분석 리포트 관리",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7faf9",
+  "theme_color": "#0f766e",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+.git
+.pytest_cache
+.venv
+.runlogs
+frontend/node_modules
+frontend/dist
+stock_scheduler.db
+*.db
+__pycache__
+*.pyc

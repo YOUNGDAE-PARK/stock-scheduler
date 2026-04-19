@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+ARG CODEX_CLI_VERSION=0.120.0
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV CODEX_HOME=/root/.codex
+ENV CODEX_BIN=/usr/local/bin/codex
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && npm install -g @openai/codex@${CODEX_CLI_VERSION} \
+    && mkdir -p /root/.codex \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend ./backend
+COPY codex_schemas ./codex_schemas
+COPY codex_skills ./codex_skills
+COPY docs ./docs
+
+EXPOSE 8000
+
+CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
