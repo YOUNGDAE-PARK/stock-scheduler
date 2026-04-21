@@ -122,7 +122,7 @@ def plan_command(text: str) -> Dict[str, Any]:
                 # 필수 필드 보정
                 if "action" not in plan and "intent" in plan:
                     plan["action"] = plan["intent"]
-                return plan
+                return _normalize_orchestrator_plan(plan)
             except (json.JSONDecodeError, KeyError, AttributeError):
                 # 구형 파싱 방식 유지 (폴백)
                 import re
@@ -142,12 +142,12 @@ def plan_command(text: str) -> Dict[str, Any]:
 
                 if "action" not in plan and "intent" in plan:
                     plan["action"] = plan["intent"]
-                return plan
+                return _normalize_orchestrator_plan(plan)
         else:
             raw = output_path.read_text(encoding="utf-8").strip()
             if not raw:
                 raise OrchestratorError("empty codex response")
-            return json.loads(raw)
+            return _normalize_orchestrator_plan(json.loads(raw))
     except subprocess.TimeoutExpired as exc:
         raise OrchestratorError("orchestrator exec timeout") from exc
     except json.JSONDecodeError as exc:
@@ -613,3 +613,79 @@ def _summarize_orchestrator_error(output: str) -> str:
     if error_line:
         return error_line[:500]
     return (lines[-1] if lines else "orchestrator exec failed")[:500]
+
+
+def _normalize_orchestrator_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(plan or {})
+    normalized["status"] = normalized.get("status") or "needs_confirmation"
+    normalized["intent"] = normalized.get("intent") or normalized.get("action") or "unknown"
+    normalized["action"] = normalized.get("action") or "guide"
+    normalized["message"] = normalized.get("message") or ""
+
+    slots = normalized.get("slots")
+    if not isinstance(slots, dict):
+        slots = {}
+    slots.setdefault("ticker", None)
+    slots.setdefault("market", None)
+    slots.setdefault("name", None)
+    slots.setdefault("quantity", None)
+    slots.setdefault("avg_price", None)
+    slots.setdefault("buy_date", None)
+    slots.setdefault("target_price", None)
+    slots.setdefault("stop_loss_price", None)
+    slots.setdefault("tags", [])
+    slots.setdefault("keywords", [])
+    slots.setdefault("linked_tickers", [])
+    slots.setdefault("memo", None)
+    slots.setdefault("url", None)
+    slots.setdefault("platform", None)
+    slots.setdefault("category", None)
+    slots.setdefault("enabled", None)
+    slots.setdefault("target", None)
+    slots.setdefault("title", None)
+    slots.setdefault("body", None)
+    payload = slots.get("payload")
+    if not isinstance(payload, dict):
+        payload = {"source": None}
+    payload.setdefault("source", None)
+    slots["payload"] = payload
+    slots.setdefault("items", None)
+
+    if isinstance(slots.get("items"), list):
+        normalized_items = []
+        for item in slots["items"]:
+            item = dict(item or {})
+            item["action"] = item.get("action")
+            item_slots = item.get("slots")
+            if not isinstance(item_slots, dict):
+                item_slots = {}
+            item_slots.setdefault("ticker", None)
+            item_slots.setdefault("market", None)
+            item_slots.setdefault("name", None)
+            item_slots.setdefault("quantity", None)
+            item_slots.setdefault("avg_price", None)
+            item_slots.setdefault("buy_date", None)
+            item_slots.setdefault("target_price", None)
+            item_slots.setdefault("stop_loss_price", None)
+            item_slots.setdefault("tags", [])
+            item_slots.setdefault("keywords", [])
+            item_slots.setdefault("linked_tickers", [])
+            item_slots.setdefault("memo", None)
+            item_slots.setdefault("url", None)
+            item_slots.setdefault("platform", None)
+            item_slots.setdefault("category", None)
+            item_slots.setdefault("enabled", None)
+            item_slots.setdefault("target", None)
+            item_slots.setdefault("title", None)
+            item_slots.setdefault("body", None)
+            item_payload = item_slots.get("payload")
+            if not isinstance(item_payload, dict):
+                item_payload = {"source": None}
+            item_payload.setdefault("source", None)
+            item_slots["payload"] = item_payload
+            item["slots"] = item_slots
+            normalized_items.append(item)
+        slots["items"] = normalized_items
+
+    normalized["slots"] = slots
+    return normalized

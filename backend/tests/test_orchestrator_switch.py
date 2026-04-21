@@ -64,3 +64,45 @@ def test_codex_runner_command_selection():
             gemini_bin="/usr/local/bin/gemini"
         )
         assert _get_orchestrator_cmd() == ["/usr/local/bin/gemini"]
+
+
+def test_gemini_plan_is_normalized():
+    from backend.app.command_parser import _normalize_orchestrator_plan
+
+    plan = _normalize_orchestrator_plan(
+        {
+            "status": "executed",
+            "intent": "create_holding",
+            "action": "create_holding",
+            "message": "ok",
+            "slots": {
+                "ticker": "005930",
+                "market": "KR",
+                "name": "삼성전자",
+                "quantity": 1,
+                "avg_price": 70000,
+            },
+        }
+    )
+
+    assert plan["slots"]["payload"] == {"source": None}
+    assert plan["slots"]["items"] is None
+    assert plan["slots"]["tags"] == []
+    assert plan["slots"]["keywords"] == []
+    assert plan["slots"]["linked_tickers"] == []
+
+
+def test_gemini_analysis_payload_is_normalized():
+    from backend.app.services.codex_runner import _normalize_analysis_payload
+
+    payload = _normalize_analysis_payload(
+        {
+            "title": "테스트 리포트",
+            "markdown": "# 테스트",
+        }
+    )
+
+    assert payload["title"] == "테스트 리포트"
+    assert payload["markdown"] == "# 테스트"
+    assert payload["major_signal_detected"] is False
+    assert payload["notification_summary"] is None

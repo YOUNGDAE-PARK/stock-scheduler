@@ -1,4 +1,5 @@
 import json
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
@@ -16,6 +17,8 @@ SCHEDULE_SKILLS = {
     "manual_codex_analysis": BASE_DIR / "codex_skills" / "final-investment-opinion" / "SKILL.md",
     "interest_area_research_watch": BASE_DIR / "codex_skills" / "interest-area-research-watch" / "SKILL.md",
 }
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorAnalysisError(RuntimeError):
@@ -96,6 +99,7 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
     try:
         cmd = _get_orchestrator_cmd()
         is_gemini = "gemini" in cmd[0].lower()
+        settings = get_settings()
 
         args = [*cmd]
         if is_gemini:
@@ -113,6 +117,22 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
                 prompt
             ])
 
+        logger.info(
+            "schedule analysis start run_id=%s orchestrator=%s run_type=%s target=%s skill=%s stocks=%s news_items=%s",
+            run["id"],
+            settings.orchestrator_type,
+            run_type,
+            json.dumps(target, ensure_ascii=False),
+            str(skill_path),
+            len(context.get("stocks") or []),
+            len((context.get("global_news") or {}).get("items") or []),
+        )
+        logger.info(
+            "schedule analysis command run_id=%s args=%s",
+            run["id"],
+            json.dumps(args[:-1] + ["<prompt omitted>"], ensure_ascii=False),
+        )
+
         completed = subprocess.run(
             args,
             check=False,
@@ -122,6 +142,14 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
             timeout=180,
             start_new_session=True,
             cwd=str(BASE_DIR) if is_gemini else None
+        )
+
+        logger.info(
+            "schedule analysis completed run_id=%s returncode=%s stdout_summary=%s stderr_summary=%s",
+            run["id"],
+            completed.returncode,
+            _truncate_log_text(completed.stdout),
+            _truncate_log_text(completed.stderr),
         )
 
         if completed.returncode != 0:
@@ -168,15 +196,24 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
                 raise OrchestratorAnalysisError("empty codex response")
             parsed = json.loads(raw)
 
+        parsed = _normalize_analysis_payload(parsed)
+
         run = db.update_row(
             "codex_run",
             run["id"],
             {"status": "completed", "finished_at": db.utc_now(), "error": None},
         )
 
+        logger.info(
+            "schedule analysis parsed run_id=%s title=%s major_signal_detected=%s",
+            run["id"],
+            parsed.get("title") or parsed.get("subject") or f"{run_type} report",
+            parsed.get("major_signal_detected"),
+        )
+
         # 필드 유무 확인 및 기본값 처리
-        title = parsed.get("title") or parsed.get("subject") or f"{run_type} report"
-        markdown = parsed.get("markdown") or parsed.get("content") or parsed.get("body") or "No content generated."
+        title = parsed["title"]
+        markdown = parsed["markdown"]
 
         report = db.insert(
             "report",
@@ -191,6 +228,12 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
         )
         return {"run": run, "report": report, "analysis": parsed}
     except (subprocess.TimeoutExpired, json.JSONDecodeError, OrchestratorAnalysisError, OSError) as exc:
+        logger.exception(
+            "schedule analysis failed run_id=%s run_type=%s target=%s",
+            run["id"],
+            run_type,
+            json.dumps(target, ensure_ascii=False),
+        )
         run = db.update_row(
             "codex_run",
             run["id"],
@@ -235,9 +278,40 @@ def _summarize_codex_error(output: str) -> str:
     if usage_limit:
         return usage_limit
     error_line = next((line for line in lines if line.lower().startswith("error")), "")
-    if error_line:
+    if error_line and error_line not in {"ERROR: {", "error: {"}:
         return error_line[:500]
+    compact = _truncate_log_text(output, limit=500)
+    if compact:
+        return compact
     return (lines[-1] if lines else "codex exec failed")[:500]
+
+
+def _truncate_log_text(text: str, limit: int = 500) -> str:
+    if not text:
+        return ""
+    compact = " | ".join(line.strip() for line in text.splitlines() if line.strip())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 3] + "..."
+
+
+def _normalize_analysis_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = dict(payload or {})
+    normalized["title"] = str(
+        normalized.get("title")
+        or normalized.get("subject")
+        or "schedule report"
+    )
+    normalized["markdown"] = str(
+        normalized.get("markdown")
+        or normalized.get("content")
+        or normalized.get("body")
+        or "No content generated."
+    )
+    normalized["major_signal_detected"] = bool(normalized.get("major_signal_detected", False))
+    summary = normalized.get("notification_summary")
+    normalized["notification_summary"] = None if summary in (None, "") else str(summary)
+    return normalized
 
 
 def _schedule_skill_path(run_type: str) -> Path:

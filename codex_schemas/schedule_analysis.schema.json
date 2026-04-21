@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["title", "markdown"],
+  "required": ["title", "markdown", "major_signal_detected", "notification_summary"],
   "properties": {
     "title": {
       "type": "string"

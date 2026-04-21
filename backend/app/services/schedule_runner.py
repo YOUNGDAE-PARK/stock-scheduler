@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Optional
 
 from .. import db
@@ -8,6 +9,7 @@ from .notifications import send_notification
 
 
 REPORT_SCHEDULE_TYPES = {"stock_report", "manual_codex_analysis", "global_news_digest", "interest_area_research_watch"}
+logger = logging.getLogger(__name__)
 
 
 def run_schedule_now(schedule_id: int) -> Dict[str, Any]:
@@ -15,10 +17,20 @@ def run_schedule_now(schedule_id: int) -> Dict[str, Any]:
     if schedule is None:
         raise ValueError("schedule not found")
 
+    logger.info("schedule run requested schedule_id=%s", schedule_id)
     schedule_type = schedule["schedule_type"]
     target = _schedule_target(schedule)
     stocks = _target_stocks(schedule)
     price_result = _refresh_prices_for_schedule(schedule_type, stocks)
+    logger.info(
+        "schedule context schedule_id=%s schedule_type=%s target_type=%s stocks=%s updated_prices=%s failed_prices=%s",
+        schedule["id"],
+        schedule_type,
+        schedule["target_type"],
+        len(stocks),
+        len(price_result.get("updated") or []),
+        len(price_result.get("failed") or []),
+    )
 
     if schedule_type == "price_alert_watch":
         notification = _send_price_watch_notification(schedule, target, price_result)
@@ -110,6 +122,13 @@ def _create_schedule_report(
     enabled_sources = [source for source in db.list_rows("expert_source") if source.get("enabled")]
     interest_areas = [area for area in db.list_rows("interest_area") if area.get("enabled")]
     global_news = _collect_news_for_schedule(schedule, enabled_sources, stocks, interest_areas)
+    logger.info(
+        "schedule report context schedule_id=%s enabled_sources=%s interest_areas=%s news_items=%s",
+        schedule["id"],
+        len(enabled_sources),
+        len(interest_areas),
+        len(global_news.get("items") or []),
+    )
     context = {
         "schedule": schedule,
         "target": target,
@@ -127,6 +146,11 @@ def _create_schedule_report(
     try:
         return run_codex_schedule_analysis(schedule["schedule_type"], target, context)
     except OrchestratorAnalysisError as exc:
+        logger.exception(
+            "schedule report analysis failed schedule_id=%s schedule_type=%s",
+            schedule["id"],
+            schedule["schedule_type"],
+        )
         return _create_fallback_report(schedule, target, stocks, price_result, str(exc), global_news)
 
 
@@ -138,6 +162,12 @@ def _create_fallback_report(
     error: str,
     global_news: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    logger.warning(
+        "creating fallback report schedule_id=%s schedule_type=%s error=%s",
+        schedule["id"],
+        schedule["schedule_type"],
+        error,
+    )
     started = db.utc_now()
     run = db.insert(
         "codex_run",

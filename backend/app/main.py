@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 import os
 from pathlib import Path
 import re
@@ -42,6 +43,11 @@ from .services.kis import KisApiError, get_kis_client
 from .services.notifications import send_test_notification
 from .services.schedule_runner import run_schedule_now
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+
 
 TABLES = {
     "interests": "interest_stock",
@@ -53,6 +59,7 @@ TABLES = {
 LOCAL_CORS_ORIGIN_PATTERN = re.compile(
     r"http://(localhost|127\.0\.0\.1|10\.0\.0\.2|192\.168\.\d+\.\d+|172\.\d+\.\d+\.\d+):5173"
 )
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -237,12 +244,17 @@ def delete_schedule(row_id: int):
 @app.post("/api/schedules/{row_id}/run")
 def run_schedule(row_id: int) -> Dict[str, Any]:
     try:
+        logger.info("api schedule run request row_id=%s", row_id)
         return run_schedule_now(row_id)
     except ValueError as exc:
         message = str(exc)
+        logger.warning("api schedule run value error row_id=%s error=%s", row_id, message)
         if "not found" in message:
             raise HTTPException(status_code=404, detail=message) from exc
         raise HTTPException(status_code=400, detail=message) from exc
+    except Exception as exc:
+        logger.exception("api schedule run unexpected error row_id=%s", row_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/expert-sources", response_model=ExpertSource)
