@@ -78,7 +78,6 @@ def _get_orchestrator_cmd() -> List[str]:
 def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
     started = db.utc_now()
     skill_path = _schedule_skill_path(run_type)
-    prompt = _build_schedule_analysis_prompt(context, skill_path)
     with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as output:
         output_path = Path(output.name)
 
@@ -100,11 +99,12 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
         cmd = _get_orchestrator_cmd()
         is_gemini = "gemini" in cmd[0].lower()
         settings = get_settings()
+        prompt = _build_schedule_analysis_prompt(context, skill_path, compact=is_gemini)
 
         args = [*cmd]
         if is_gemini:
-            # Gemini CLI: gemini -p "prompt" --output-format json
-            args.extend(["-p", prompt, "--output-format", "json", "--approval-mode", "plan"])
+            # Gemini CLI: keep headless JSON mode, avoid extra planning mode latency.
+            args.extend(["-p", prompt, "--output-format", "json"])
         else:
             # Codex CLI: codex exec ...
             args.extend([
@@ -244,8 +244,18 @@ def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: 
         output_path.unlink(missing_ok=True)
 
 
-def _build_schedule_analysis_prompt(context: Dict[str, Any], skill_path: Path) -> str:
+def _build_schedule_analysis_prompt(context: Dict[str, Any], skill_path: Path, compact: bool = False) -> str:
     skill = skill_path.read_text(encoding="utf-8")
+    serialized_context = (
+        json.dumps(_compact_schedule_context(context), ensure_ascii=False, separators=(",", ":"))
+        if compact
+        else json.dumps(context, ensure_ascii=False, indent=2)
+    )
+    extra_rule = (
+        "6. Keep the response concise and prioritize the most recent and most relevant headlines only.\n"
+        if compact
+        else ""
+    )
     return f"""
 You are a stock market analyst. Your task is to generate a structured report in JSON format.
 
@@ -259,13 +269,14 @@ You are a stock market analyst. Your task is to generate a structured report in 
 3. DO NOT include any text before or after the JSON object.
 4. DO NOT use markdown code blocks (```json) for the JSON itself.
 5. ENSURE the "markdown" field is NOT EMPTY and contains the full analysis.
+{extra_rule}
 
 <skill>
 {skill}
 </skill>
 
 <context>
-{json.dumps(context, ensure_ascii=False, indent=2)}
+{serialized_context}
 </context>
 
 Return ONLY the JSON object.
@@ -293,6 +304,86 @@ def _truncate_log_text(text: str, limit: int = 500) -> str:
     if len(compact) <= limit:
         return compact
     return compact[: limit - 3] + "..."
+
+
+def _compact_schedule_context(context: Dict[str, Any]) -> Dict[str, Any]:
+    compact = dict(context or {})
+    compact["enabled_sources"] = [
+        {
+            "name": item.get("name"),
+            "category": item.get("category"),
+            "platform": item.get("platform"),
+        }
+        for item in (compact.get("enabled_sources") or [])[:6]
+    ]
+    compact["stocks"] = [
+        {
+            "ticker": item.get("ticker"),
+            "market": item.get("market"),
+            "name": item.get("name"),
+        }
+        for item in (compact.get("stocks") or [])[:8]
+    ]
+    compact["interest_areas"] = [
+        {
+            "name": item.get("name"),
+            "category": item.get("category"),
+            "keywords": (item.get("keywords") or [])[:5],
+            "linked_tickers": (item.get("linked_tickers") or [])[:5],
+        }
+        for item in (compact.get("interest_areas") or [])[:5]
+    ]
+    prices = dict(compact.get("prices") or {})
+    prices["updated"] = [
+        {
+            "ticker": item.get("ticker"),
+            "market": item.get("market"),
+            "name": item.get("name"),
+            "price": item.get("price"),
+        }
+        for item in (prices.get("updated") or [])[:8]
+    ]
+    prices["failed"] = [
+        {
+            "ticker": item.get("ticker"),
+            "market": item.get("market"),
+            "name": item.get("name"),
+            "error": item.get("error"),
+        }
+        for item in (prices.get("failed") or [])[:5]
+    ]
+    compact["prices"] = prices
+
+    global_news = dict(compact.get("global_news") or {})
+    news_items = []
+    seen_titles = set()
+    for item in global_news.get("items") or []:
+        title = str(item.get("title") or "").strip()
+        if not title or title in seen_titles:
+            continue
+        seen_titles.add(title)
+        news_items.append(
+            {
+                "title": title,
+                "published_at": item.get("published_at"),
+                "summary": item.get("summary"),
+                "source": item.get("source"),
+                "category": item.get("category"),
+            }
+        )
+        if len(news_items) >= 10:
+            break
+    global_news["items"] = news_items
+    global_news["sources"] = [
+        {
+            "name": item.get("name"),
+            "category": item.get("category"),
+        }
+        for item in (global_news.get("sources") or [])[:6]
+    ]
+    global_news["errors"] = (global_news.get("errors") or [])[:5]
+    compact["global_news"] = global_news
+    return compact
 
 
 def _normalize_analysis_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

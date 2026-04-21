@@ -7,6 +7,7 @@ ENV_FILE="${ENV_FILE:-/tmp/stock_scheduler.env}"
 CODEX_AUTH_FILE="${CODEX_AUTH_FILE:-/tmp/codex-auth.json}"
 GEMINI_OAUTH_CREDS_FILE="${GEMINI_OAUTH_CREDS_FILE:-/tmp/gemini-oauth-creds.json}"
 DEPLOY_COMPOSE_FILE="${DEPLOY_COMPOSE_FILE:-docker-compose.oracle-lite.yml}"
+PRUNE_DOCKER_IMAGES="${PRUNE_DOCKER_IMAGES:-0}"
 
 mkdir -p "$APP_DIR"
 tar -xzf "$RELEASE_ARCHIVE" -C "$APP_DIR"
@@ -69,5 +70,7 @@ else
 fi
 
 "${COMPOSE[@]}" -f "$DEPLOY_COMPOSE_FILE" up -d --build
-docker image prune -f >/dev/null
+if [[ "$PRUNE_DOCKER_IMAGES" == "1" ]]; then
+  docker image prune -f >/dev/null
+fi
 "${COMPOSE[@]}" -f "$DEPLOY_COMPOSE_FILE" ps

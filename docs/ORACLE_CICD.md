@@ -107,3 +107,8 @@ Source CIDR: 0.0.0.0/0
 IP Protocol: TCP
 Destination Port Range: 8000
 ```
+
+## 6. Build cache note
+
+- Oracle deploy script keeps Docker build cache by default so package install layers can be reused across deploys.
+- If disk cleanup is needed on the VM, run deploy with `PRUNE_DOCKER_IMAGES=1`.
