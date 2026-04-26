@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["title", "markdown", "major_signal_detected", "notification_summary"],
+  "required": ["title", "markdown", "major_signal_detected", "notification_summary", "decision_json"],
   "properties": {
     "title": {
       "type": "string"
@@ -15,6 +15,56 @@
     },
     "notification_summary": {
       "type": ["string", "null"]
+    },
+    "decision_json": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "importance": {
+                "type": ["number", "null"]
+              },
+              "stance": {
+                "type": ["string", "null"]
+              },
+              "tickers": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["label", "summary", "importance", "stance", "tickers"]
+          }
+        },
+        "watch_points": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["items", "watch_points", "notes", "summary"]
     }
   }
 }

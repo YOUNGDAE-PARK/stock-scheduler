@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta, timezone
+
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from . import db
+from .services.news_pipeline import purge_pipeline_data, run_news_pipeline_chain
 from .services.schedule_runner import run_schedule_now
 
 
@@ -12,6 +15,34 @@ def create_scheduler() -> BackgroundScheduler:
         minutes=30,
         id="scheduler_heartbeat",
         replace_existing=True,
+    )
+    scheduler.add_job(
+        run_news_pipeline_chain,
+        "interval",
+        hours=4,
+        id="news_pipeline_chain",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        run_news_pipeline_chain,
+        "date",
+        run_date=datetime.now(timezone.utc) + timedelta(seconds=3),
+        id="news_pipeline_resume",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    scheduler.add_job(
+        purge_pipeline_data,
+        "cron",
+        hour=3,
+        minute=15,
+        id="data_purge",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
     register_daily_schedule_jobs(scheduler)
     return scheduler

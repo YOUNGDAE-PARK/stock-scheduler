@@ -4,11 +4,18 @@ from typing import Any, Dict, List, Optional
 from .. import db
 from .codex_runner import OrchestratorAnalysisError, run_codex_schedule_analysis
 from .kis import KisApiError, get_kis_client
-from .news import collect_global_news
+from .news_pipeline import (
+    PIPELINE_REPORT_TYPES,
+    build_strategy_context,
+    fallback_strategy_analysis,
+    mirror_strategy_report,
+    warm_strategy_pipeline,
+)
 from .notifications import send_notification
 
 
-REPORT_SCHEDULE_TYPES = {"stock_report", "manual_codex_analysis", "global_news_digest", "interest_area_research_watch"}
+REPORT_SCHEDULE_TYPES = {"manual_codex_analysis", "interest_area_research_watch"}
+PIPELINE_STRATEGY_SCHEDULE_TYPES = set(PIPELINE_REPORT_TYPES.keys())
 logger = logging.getLogger(__name__)
 
 
@@ -42,6 +49,21 @@ def run_schedule_now(schedule_id: int) -> Dict[str, Any]:
             "message": f"{schedule['name']} 실행 완료: 현재가를 조회하고 알림을 보냈습니다.",
         }
 
+    if schedule_type in PIPELINE_STRATEGY_SCHEDULE_TYPES:
+        result = _create_strategy_pipeline_report(schedule, target, stocks, price_result)
+        notification = _send_report_notification(schedule, target, result["report"], result["run"])
+        return {
+            "status": "completed",
+            "schedule": schedule,
+            "prices": price_result,
+            "run": result["run"],
+            "report": result["report"],
+            "strategy_report": result["strategy_report"],
+            "pipeline": result["pipeline"],
+            "notification": notification,
+            "message": f"{schedule['name']} 실행 완료: 개인화 전략 리포트를 생성했습니다.",
+        }
+
     if schedule_type in REPORT_SCHEDULE_TYPES:
         result = _create_schedule_report(schedule, target, stocks, price_result)
         notification = None
@@ -58,6 +80,40 @@ def run_schedule_now(schedule_id: int) -> Dict[str, Any]:
         }
 
     raise ValueError(f"unsupported schedule type: {schedule_type}")
+
+
+def _create_strategy_pipeline_report(
+    schedule: Dict[str, Any],
+    target: Dict[str, Any],
+    stocks: List[Dict[str, Any]],
+    price_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    pipeline_result = warm_strategy_pipeline()
+    context = build_strategy_context(schedule["schedule_type"], schedule, target, stocks, price_result)
+    report_type = PIPELINE_REPORT_TYPES[schedule["schedule_type"]]
+    try:
+        result = run_codex_schedule_analysis(schedule["schedule_type"], target, context)
+        analysis = result.get("analysis") or {}
+    except OrchestratorAnalysisError as exc:
+        logger.exception(
+            "strategy pipeline analysis failed schedule_id=%s schedule_type=%s",
+            schedule["id"],
+            schedule["schedule_type"],
+        )
+        analysis = fallback_strategy_analysis(report_type, context)
+        result = _create_fallback_report(
+            schedule,
+            target,
+            stocks,
+            price_result,
+            str(exc),
+            {"items": context.get("pipeline", {}).get("recent_headlines") or []},
+            analysis_override=analysis,
+            title_override=analysis.get("title") or schedule["name"],
+            markdown_override=analysis.get("markdown") or "",
+        )
+    strategy_report = mirror_strategy_report(report_type, schedule["id"], result["report"], analysis, context)
+    return {**result, "pipeline": pipeline_result, "strategy_report": strategy_report}
 
 
 def _send_price_watch_notification(
@@ -140,7 +196,7 @@ def _create_schedule_report(
         "provider_notes": {
             "kis": "Connected for KR domestic current prices.",
             "telegram": "Connected when NOTIFICATION_MODE=telegram.",
-            "news_disclosure_social": "RSS/search headline collection is connected for global_news_digest. Full article body, paid APIs, Facebook scraping, FRED observations, and disclosure parsers are not connected yet.",
+            "news_disclosure_social": "RSS/search headline collection and best-effort article body fetching are connected for the strategy pipeline and interest area watch. Paid APIs, Facebook scraping, FRED observations, and disclosure parsers are not connected yet.",
         },
     }
     try:
@@ -161,6 +217,9 @@ def _create_fallback_report(
     price_result: Dict[str, Any],
     error: str,
     global_news: Optional[Dict[str, Any]] = None,
+    analysis_override: Optional[Dict[str, Any]] = None,
+    title_override: Optional[str] = None,
+    markdown_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     logger.warning(
         "creating fallback report schedule_id=%s schedule_type=%s error=%s",
@@ -188,13 +247,17 @@ def _create_fallback_report(
         {
             "report_type": schedule["schedule_type"],
             "target": target,
-            "title": f"{schedule['name']} fallback 리포트",
-            "markdown": _build_report_markdown(schedule, stocks, price_result, error, global_news or {}),
+            "title": title_override or f"{schedule['name']} fallback 리포트",
+            "markdown": markdown_override or _build_report_markdown(schedule, stocks, price_result, error, global_news or {}),
             "codex_run_id": run["id"],
             "created_at": db.utc_now(),
         },
     )
-    return {"run": run, "report": report, "analysis": {"major_signal_detected": False, "notification_summary": None}}
+    return {
+        "run": run,
+        "report": report,
+        "analysis": analysis_override or {"major_signal_detected": False, "notification_summary": None, "decision_json": {}},
+    }
 
 
 def _build_report_markdown(
@@ -256,7 +319,7 @@ def _refresh_current_prices(stocks: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _refresh_prices_for_schedule(schedule_type: str, stocks: List[Dict[str, Any]]) -> Dict[str, Any]:
-    if schedule_type in {"global_news_digest", "interest_area_research_watch"}:
+    if schedule_type in {"interest_area_research_watch"}:
         return _local_price_snapshots(stocks)
     return _refresh_current_prices(stocks)
 
@@ -346,8 +409,10 @@ def _collect_news_for_schedule(
     stocks: List[Dict[str, Any]],
     interest_areas: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    if schedule["schedule_type"] not in {"global_news_digest", "interest_area_research_watch"}:
+    if schedule["schedule_type"] not in {"interest_area_research_watch"}:
         return {"items": [], "sources": [], "errors": [], "coverage_note": "News collection skipped for this schedule type."}
+    from .news import collect_global_news
+
     return collect_global_news(enabled_sources, stocks, interest_areas)
 
 

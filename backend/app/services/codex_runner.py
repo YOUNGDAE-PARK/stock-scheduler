@@ -1,5 +1,6 @@
 import json
 import logging
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -12,10 +13,10 @@ from ..config import get_settings
 BASE_DIR = Path(__file__).resolve().parents[3]
 SCHEDULE_ANALYSIS_SCHEMA_PATH = BASE_DIR / "codex_schemas" / "schedule_analysis.schema.json"
 SCHEDULE_SKILLS = {
-    "stock_report": BASE_DIR / "codex_skills" / "stock-report" / "SKILL.md",
-    "global_news_digest": BASE_DIR / "codex_skills" / "macro-news-digest" / "SKILL.md",
     "manual_codex_analysis": BASE_DIR / "codex_skills" / "final-investment-opinion" / "SKILL.md",
     "interest_area_research_watch": BASE_DIR / "codex_skills" / "interest-area-research-watch" / "SKILL.md",
+    "interest_area_radar_report": BASE_DIR / "codex_skills" / "interest-area-radar" / "SKILL.md",
+    "interest_stock_radar_report": BASE_DIR / "codex_skills" / "interest-stock-radar" / "SKILL.md",
 }
 
 logger = logging.getLogger(__name__)
@@ -71,8 +72,10 @@ def run_dry_analysis(run_type: str, target: Dict[str, Any], agent_role: str) -> 
 def _get_orchestrator_cmd() -> List[str]:
     settings = get_settings()
     if settings.orchestrator_type.lower() == "gemini":
-        return [settings.gemini_bin]
-    return [settings.codex_bin]
+        resolved = shutil.which(settings.gemini_bin) or settings.gemini_bin
+        return [resolved]
+    resolved = shutil.which(settings.codex_bin) or shutil.which("codex") or settings.codex_bin
+    return [resolved]
 
 
 def run_codex_schedule_analysis(run_type: str, target: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
@@ -266,6 +269,7 @@ You are a stock market analyst. Your task is to generate a structured report in 
    - "markdown": The full report content in Korean Markdown.
    - "major_signal_detected": (boolean) True if an urgent signal is found.
    - "notification_summary": (string) A short summary for mobile notifications.
+   - "decision_json": (object, optional) Structured decision payload when the schedule type requires it.
 3. DO NOT include any text before or after the JSON object.
 4. DO NOT use markdown code blocks (```json) for the JSON itself.
 5. ENSURE the "markdown" field is NOT EMPTY and contains the full analysis.
@@ -383,6 +387,43 @@ def _compact_schedule_context(context: Dict[str, Any]) -> Dict[str, Any]:
     ]
     global_news["errors"] = (global_news.get("errors") or [])[:5]
     compact["global_news"] = global_news
+
+    pipeline = dict(compact.get("pipeline") or {})
+    pipeline["recent_clusters"] = [
+        {
+            "theme": item.get("theme"),
+            "narrative": item.get("narrative"),
+            "tickers": (item.get("tickers") or [])[:5],
+            "sectors": (item.get("sectors") or [])[:5],
+            "importance_score": item.get("importance_score"),
+        }
+        for item in (pipeline.get("recent_clusters") or [])[:8]
+    ]
+    pipeline["recent_refined_news"] = [
+        {
+            "title": item.get("title"),
+            "source": item.get("source"),
+            "published_at": item.get("published_at"),
+            "refined_summary": item.get("refined_summary"),
+            "importance": item.get("importance"),
+            "sentiment": item.get("sentiment"),
+            "tickers": (item.get("tickers") or [])[:5],
+            "sectors": (item.get("sectors") or [])[:5],
+            "has_raw_body": item.get("has_raw_body"),
+        }
+        for item in (pipeline.get("recent_refined_news") or [])[:10]
+    ]
+    pipeline["recent_headlines"] = [
+        {
+            "title": item.get("title"),
+            "source": item.get("source"),
+            "published_at": item.get("published_at"),
+            "importance": item.get("importance"),
+            "sentiment": item.get("sentiment"),
+        }
+        for item in (pipeline.get("recent_headlines") or [])[:10]
+    ]
+    compact["pipeline"] = pipeline
     return compact
 
 
@@ -402,6 +443,13 @@ def _normalize_analysis_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized["major_signal_detected"] = bool(normalized.get("major_signal_detected", False))
     summary = normalized.get("notification_summary")
     normalized["notification_summary"] = None if summary in (None, "") else str(summary)
+    decision_json = normalized.get("decision_json")
+    normalized["decision_json"] = decision_json if isinstance(decision_json, dict) else {
+        "items": [],
+        "watch_points": [],
+        "notes": [],
+        "summary": None,
+    }
     return normalized
 
 

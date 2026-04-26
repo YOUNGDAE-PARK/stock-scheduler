@@ -40,6 +40,7 @@ from .schemas import (
 )
 from .services.codex_runner import run_dry_analysis
 from .services.kis import KisApiError, get_kis_client
+from .services.news_pipeline import run_news_pipeline_chain
 from .services.notifications import send_test_notification
 from .services.schedule_runner import run_schedule_now
 
@@ -110,13 +111,14 @@ def health() -> Dict[str, str]:
 def codex_diagnostics() -> Dict[str, Any]:
     settings = get_settings()
     codex_bin = settings.codex_bin
+    codex_resolved = shutil.which(codex_bin) or shutil.which("codex")
     codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     auth_path = codex_home / "auth.json"
     config_path = codex_home / "config.toml"
     return {
         "codex_bin": codex_bin,
-        "codex_bin_resolved": shutil.which(codex_bin) or shutil.which("codex"),
-        "codex_bin_exists": Path(codex_bin).exists() or shutil.which(codex_bin) is not None,
+        "codex_bin_resolved": codex_resolved,
+        "codex_bin_exists": Path(codex_bin).exists() or codex_resolved is not None,
         "codex_home": str(codex_home),
         "auth_json_exists": auth_path.exists(),
         "config_toml_exists": config_path.exists(),
@@ -326,6 +328,74 @@ def get_report(row_id: int):
     if row is None:
         raise HTTPException(status_code=404, detail="not found")
     return row
+
+
+@app.post("/api/reports/clear")
+def clear_reports() -> Dict[str, int]:
+    deleted_reports = db.delete_all_rows("report")
+    deleted_strategy_reports = db.delete_all_rows("strategy_report")
+    return {
+        "deleted_reports": deleted_reports,
+        "deleted_strategy_reports": deleted_strategy_reports,
+    }
+
+
+@app.post("/api/pipeline/backfill")
+def run_pipeline_backfill() -> Dict[str, Any]:
+    try:
+        return run_news_pipeline_chain(force_collect=True)
+    except Exception as exc:
+        logger.exception("pipeline backfill failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/e2e/run")
+def run_e2e_flow(schedule_type: str = Query("interest_area_radar_report")) -> Dict[str, Any]:
+    try:
+        pipeline = run_news_pipeline_chain(force_collect=True)
+        schedule = next(
+            (row for row in db.list_rows("schedule") if row.get("schedule_type") == schedule_type and row.get("enabled")),
+            None,
+        )
+        if schedule is None:
+            raise HTTPException(status_code=404, detail=f"enabled schedule not found: {schedule_type}")
+        result = run_schedule_now(schedule["id"])
+        return {
+            "status": "completed",
+            "pipeline": pipeline,
+            "schedule": schedule,
+            "result": result,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("e2e flow failed schedule_type=%s", schedule_type)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/pipeline/news-raw")
+def list_news_raw(limit: int = Query(100, ge=1, le=500)) -> List[Dict[str, Any]]:
+    return db.list_rows("news_raw")[:limit]
+
+
+@app.get("/api/pipeline/news-refined")
+def list_news_refined(limit: int = Query(100, ge=1, le=500)) -> List[Dict[str, Any]]:
+    return db.list_rows("news_refined")[:limit]
+
+
+@app.get("/api/pipeline/news-cluster")
+def list_news_cluster(limit: int = Query(100, ge=1, le=500)) -> List[Dict[str, Any]]:
+    return db.list_rows("news_cluster")[:limit]
+
+
+@app.get("/api/pipeline/strategy-reports")
+def list_strategy_reports(limit: int = Query(100, ge=1, le=500)) -> List[Dict[str, Any]]:
+    return db.list_rows("strategy_report")[:limit]
+
+
+@app.get("/api/pipeline/state")
+def list_pipeline_state() -> List[Dict[str, Any]]:
+    return db.list_rows("pipeline_state")
 
 
 @app.post("/api/notifications/test", response_model=NotificationLog)

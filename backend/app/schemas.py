@@ -6,11 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 Market = Literal["KR", "US"]
 ScheduleType = Literal[
-    "stock_report",
     "price_alert_watch",
-    "global_news_digest",
     "manual_codex_analysis",
     "interest_area_research_watch",
+    "interest_area_radar_report",
+    "interest_stock_radar_report",
 ]
 ScheduleTarget = Literal["interest", "holding", "all", "tickers", "areas"]
 

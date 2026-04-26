@@ -120,9 +120,9 @@ TELEGRAM_CHAT_ID=내_개인_CHAT_ID
 
 PWA의 자연어 명령창에서 관심분야를 추가한다. 예: `AI 반도체를 관심분야로 추가하고 키워드는 HBM, 온디바이스 AI, 연결 종목은 삼성전자와 SK하이닉스`. Codex orchestrator가 이를 내부 format인 category, keywords, linked tickers, memo로 구조화한다. 기본 스케줄 `09:00 관심분야 연구성과 감지`는 활성 관심분야를 전용 Codex skill로 점검하고, 연결 종목 전망에 의미 있는 주요 성과가 감지되면 Telegram으로 리포트 본문까지 보낸다.
 
-## 글로벌 경제뉴스
+## 개인화 전략 리포트
 
-08:00/18:00 글로벌 경제뉴스 스케줄은 기본 RSS/search headline provider와 사용자가 추가한 RSS/feed 소스를 수집해 Codex에 전달한다. 리포트는 “확인해야 할 소스”가 아니라 헤드라인 흐름을 바탕으로 시장 영향, 보유/관심종목 영향, 투자 액션을 정리한다.
+내부 뉴스 파이프라인은 RSS/search headline provider와 사용자가 추가한 RSS/feed 소스를 수집해 `관심분야 Radar`, `관심종목 Radar`, `보유종목 Decision` 리포트를 생성한다. 리포트는 단순 소스 나열이 아니라 headline 흐름을 바탕으로 연결 종목, 감시 포인트, 액션 의견을 정리한다.
 
 ## Frontend
 

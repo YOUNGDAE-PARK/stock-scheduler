@@ -3,19 +3,16 @@
 ## 1. 공통 원칙
 
 - 모든 API는 `/api` prefix를 사용한다.
-- 응답은 JSON을 기본으로 한다.
+- 응답은 JSON이다.
 - 생성/수정 요청은 validation error를 명확히 반환한다.
-- 애매한 자연어 명령은 실행하지 않고 확인 메시지를 반환한다.
-- 현재 구현은 SQLite 기반 local v1 scaffold다. `DATABASE_URL=sqlite:///...` 형식을 지원한다.
+- 자연어 명령은 서버가 직접 파싱하지 않고 Codex 오케스트레이터를 통해 action plan으로 변환한다.
+
+## 2. 기본 엔드포인트
 
 ### 진단
 
 - `GET /api/health`
 - `GET /api/diagnostics/codex`
-
-`/api/diagnostics/codex`는 Docker/Oracle 배포에서 Codex CLI와 `/root/.codex/auth.json` mount가 인식되는지 확인한다. 호스트에서는 사용자가 `secrets/codex/auth.json`에 인증 파일을 직접 저장하고, Compose가 이 파일만 `/root/.codex/auth.json`으로 read-only mount한다. `/root/.codex` 디렉터리 자체는 Codex 상태 파일을 쓸 수 있도록 writable로 유지한다. 토큰 내용은 반환하지 않고 파일 존재 여부와 실행 파일 경로만 반환한다.
-
-## 2. REST API
 
 ### 관심종목
 
@@ -24,7 +21,7 @@
 - `PATCH /api/interests/{id}`
 - `DELETE /api/interests/{id}`
 
-`GET /api/interests` 응답에는 최신 `price_snapshot`이 있으면 `current_price`가 포함된다. 없으면 `null`이며 PWA는 `-`로 표시한다.
+`GET /api/interests`는 최신 `price_snapshot`이 있으면 `current_price`를 함께 반환한다.
 
 ### 관심분야
 
@@ -33,7 +30,7 @@
 - `PATCH /api/interest-areas/{id}`
 - `DELETE /api/interest-areas/{id}`
 
-관심분야는 종목 관심목록과 별도 category로 관리한다. 각 항목은 `name`, `category`, `keywords`, `linked_tickers`, `memo`, `enabled`를 가진다. 09:00 관심분야 연구성과 감지 스케줄은 활성 관심분야와 연결 종목을 context로 사용한다.
+관심분야는 `name`, `category`, `keywords`, `linked_tickers`, `memo`, `enabled`를 가진다.
 
 ### 보유종목
 
@@ -42,7 +39,7 @@
 - `PATCH /api/holdings/{id}`
 - `DELETE /api/holdings/{id}`
 
-`GET /api/holdings` 응답에는 최신 `price_snapshot`이 있으면 `current_price`가 포함된다. 같은 `ticker+market` 보유종목 등록은 기존 row를 업데이트한다.
+`GET /api/holdings`도 최신 `price_snapshot` 기반 `current_price`를 포함한다.
 
 ### 스케줄
 
@@ -52,8 +49,15 @@
 - `DELETE /api/schedules/{id}`
 - `POST /api/schedules/{id}/run`
 
-`POST /api/schedules/{id}/run`은 등록된 스케줄을 즉시 수동 실행한다. 가격 감시 스케줄은 KIS 현재가를 조회해 `price_snapshot`에 저장하고 알림 provider를 호출한다. 분석/뉴스 계열 스케줄은 현재 보유/관심종목과 갱신된 가격을 context로 만들어 `codex exec` 분석을 실행하고, Codex가 생성한 Markdown 리포트를 저장한다. Codex 실패 시에는 실패 사유가 포함된 fallback 리포트를 저장한다.
-글로벌 경제뉴스 스케줄은 기본 RSS/search headline provider와 사용자가 추가한 RSS/feed 소스에서 `global_news.items`를 수집해 context에 포함한다. 리포트는 소스 확인 목록이 아니라 헤드라인 근거, 시장 영향, 보유/관심종목 영향, 투자 액션을 우선한다.
+현재 유효한 `schedule_type`:
+
+- `price_alert_watch`
+- `manual_codex_analysis`
+- `interest_area_research_watch`
+- `interest_area_radar_report`
+- `interest_stock_radar_report`
+
+전략 리포트 스케줄 `interest_area_radar_report`, `interest_stock_radar_report`는 즉석 수집보다 내부 파이프라인 산출물 `news_raw`, `news_refined`, `news_cluster`를 우선 사용한다. 다만 데이터가 비어 있거나 오래되면 필요한 수집/분류/클러스터 단계를 먼저 보강한 뒤 리포트를 만든다.
 
 ### 전문가 소스
 
@@ -66,131 +70,136 @@
 
 - `POST /api/commands`
 
-명령 예시는 다음과 같다.
-
-- 삼성전자 관심종목 추가
-- 테슬라 3주 평균가 180달러로 보유종목 등록
-- 보유종목: 삼성전자
-- 삼성전자 160500원 284주 보유
-- 여러 줄 포트폴리오 붙여넣기: `KODEX 200: 보유수량 613 / 현재주가 94050`
-- 오건영 SNS를 경제뉴스 참고소스로 추가
-- 오건영 Facebook 경제뉴스 소스 삭제
-
-현재 v1 scaffold는 `/api/commands`를 Codex 기반 API orchestrator로 처리한다. 서버는 일반 자연어를 직접 파싱하지 않고, `api-orchestrator` skill과 JSON schema를 사용해 Codex가 만든 action plan을 실행한다. 관심분야, 관심종목, 보유종목, 전문가 소스 같은 자연어 명령은 모두 Codex orchestrator가 내부 format으로 구조화한다. 지원 기능이면 실행하고, 필수 값이 빠진 요청은 guide 성격의 `needs_confirmation`을 반환하며, 기능이 없으면 `unsupported`를 반환한다. `보유종목: 삼성전자`처럼 필수 값이 빠진 라벨형 명령은 보유종목 의도로 인식하되 수량/평균매수가 입력을 요청한다. `삼성전자 160500원 284주 보유`처럼 종목, 가격, 수량, 보유 의도가 모두 있는 문장은 보유종목 등록으로 실행한다. 같은 `ticker+market` 보유종목이 이미 있으면 새 row를 만들지 않고 기존 보유종목을 업데이트한다. 오건영 Facebook처럼 프로젝트가 후보 URL을 알고 있는 소스도 Codex가 action/slots를 만든 뒤 backend executor가 비활성 상태로 저장한다.
-PWA는 경제뉴스 소스의 내부 필드(`category`, `platform`, `enabled`, `trust_note`)를 사용자 입력 폼으로 노출하지 않고 자연어 명령을 `/api/commands`로 보낸다.
-여러 항목이 한 요청에 들어오면 Codex가 `batch` action의 `slots.items`로 개별 action을 만들고, backend가 순차 실행한다. 붙여넣은 포트폴리오에 평균매수가 없이 현재주가만 있으면 현재주가를 임시 평균단가로 저장한다. 같은 종목이 여러 계좌에 나뉘어 있으면 현재 DB 구조에서는 계좌별 row를 분리하지 않고 수량을 합산해 하나의 보유종목으로 저장한다.
+Codex orchestrator가 action plan을 만들고 backend executor가 이를 실행한다.
 
 ### 분석
 
 - `POST /api/analysis/run`
 - `GET /api/analysis/runs/{id}`
 
-현재 구현은 `dry_run_completed` 상태의 `codex_run`과 dry-run `report`를 생성한다. 실제 `codex exec` 호출은 provider 연결 단계에서 구현한다.
-
 ### 리포트
 
 - `GET /api/reports`
 - `GET /api/reports/{id}`
+- `POST /api/reports/clear`
 
 ### 알림
 
 - `POST /api/notifications/test`
 
-`NOTIFICATION_MODE=dry-run`이면 알림을 `notification_log`에 기록만 한다. `NOTIFICATION_MODE=telegram`이면 Telegram Bot API로 실제 메시지를 보내고 성공/실패를 `notification_log`에 기록한다. FCM/SMTP 발송은 이후 provider 확장 단계에서 구현한다.
-
-### 한국투자증권 Provider
+### KIS 시세
 
 - `GET /api/providers/kis/domestic-price/{ticker}`
 - `GET /api/providers/kis/domestic-prices?tickers=005930,000660`
 
-현재 구현은 `.env`의 `KIS_ENV`에 따라 실전/모의 base URL을 선택한다. 접근토큰은 메모리에 캐시해 만료 전까지 재사용하고, 토큰 오류가 발생하면 캐시를 무효화한 뒤 1회 재발급하여 요청을 재시도한다.
-국내주식 멀티종목 현재가는 한국투자증권 `관심종목(멀티종목) 시세조회` API를 사용하며 1회 요청에 최대 30종목을 보낸다. 30종목을 넘기면 내부적으로 30개 단위로 나누어 호출한다.
-응답에는 한국투자 원본 `output`과 앱에서 쓰기 쉬운 `items` 정규화 목록이 함께 포함된다.
+## 3. 파이프라인 API
 
-## 3. 핵심 DB 엔티티
+- `POST /api/pipeline/backfill`
+- `GET /api/pipeline/news-raw`
+- `GET /api/pipeline/news-refined`
+- `GET /api/pipeline/news-cluster`
+- `GET /api/pipeline/strategy-reports`
+- `GET /api/pipeline/state`
 
-### `interest_stock`
+### `POST /api/pipeline/backfill`
 
-- ticker
-- market
-- name
-- tags
-- memo
-- enabled
-- alert settings
+강제로 뉴스 파이프라인 체인을 한 번 실행한다.
 
-### `interest_area`
+- 순서: `news_collect -> news_classify -> market_cluster`
+- 최초 수집 정책: source별 최근 7일 backfill
+- 이후 수집 정책: source별 `last_collected_at` 이후 기사만 유지
+- 결과: 삽입/건너뜀/필터링 카운트와 pipeline state 반영
 
-- name
-- category
-- keywords
-- linked_tickers
-- memo
-- enabled
+이 엔드포인트는 프론트의 `백필 실행` 버튼과 연결된다.
 
-### `holding_stock`
+### `POST /api/reports/clear`
 
-- ticker
-- market
-- name
-- quantity
-- avg_price
-- buy_date
-- target_price
-- stop_loss_price
-- memo
-- enabled
-- alert settings
+기존 `report`와 `strategy_report`의 과거 데이터를 모두 삭제한다.
 
-### `expert_source`
+- 삭제 대상:
+  - `report`
+  - `strategy_report`
+- 용도:
+  - 테스트/seed 리포트 정리
+  - 파이프라인을 깨끗한 상태로 다시 확인할 때 사용
 
-- name
-- category
-- url
-- platform
-- enabled
-- trust_note
-- last_checked_at
+### 파이프라인 조회 API
 
-### `codex_skill`
+프론트의 파이프라인 테이블 화면에서 단계별 데이터를 직접 검증하기 위한 API다.
 
-- name
-- path
-- purpose
-- enabled
-- version
+- `news-raw`: 원본 headline/메타
+- `news-refined`: 분류/태깅 결과
+- `news-cluster`: 내러티브 묶음 결과
+- `strategy-reports`: 최종 개인화 리포트 원본
+- `state`: 단계 상태와 source checkpoint
 
-### `codex_run`
+## 4. 주요 저장 모델
 
-- run_type
-- target
-- agent_role
-- prompt_path
-- output_path
-- status
-- started_at
-- finished_at
-- error
+### `news_raw`
 
-### 기타
+- `title`
+- `url`
+- `source`
+- `category`
+- `published_at`
+- `collected_at`
+- `raw_summary`
+- `raw_body`
+- `content_hash`
+- `raw_payload`
 
-- `schedule`
-- `report`
-- `notification_log`
-- `price_snapshot`
+### `news_refined`
 
-## 4. 현재 구현 상태
+- `news_raw_id`
+- `tickers`
+- `sectors`
+- `importance`
+- `sentiment`
+- `user_links`
+- `refined_summary`
+- `classified_at`
 
-- FastAPI app entrypoint: `backend.app.main:app`
-- DB bootstrap: 앱 lifespan에서 SQLite table을 생성한다.
-- 초기 seed: 기본 스케줄, 경제뉴스 소스, seed 리포트, 샘플 현재가 snapshot
-- 구현된 CRUD: 관심종목, 관심분야, 보유종목, 스케줄, 전문가 소스
-- 구현된 dry-run: 자연어 명령 일부, Codex 분석 실행 기록, 테스트 알림 기록
-- 미구현 provider: 뉴스/공시/SNS 수집, 실제 Codex CLI, FCM, SMTP
+### `news_cluster`
 
-## 5. 문서 현행화
+- `cluster_key`
+- `theme`
+- `narrative`
+- `related_news_ids`
+- `tickers`
+- `sectors`
+- `importance_score`
+- `cluster_window_start`
+- `cluster_window_end`
 
-- 공개 endpoint, request/response schema, 오류 정책이 바뀌면 이 문서를 갱신한다.
-- 변경 배경은 `docs/HISTORY.md`에 기록한다.
-- 구현 작업은 `docs/TODO.md`에서 추적한다.
-- 구현 완료 후 `docs/CHANGELOG.md`에 기록한다.
+### `strategy_report`
+
+- `report_type`
+- `schedule_id`
+- `title`
+- `markdown`
+- `decision_json`
+- `major_signal_detected`
+- `notification_summary`
+- `source_cluster_ids`
+
+### `pipeline_state`
+
+- `pipeline_key`
+- `status`
+- `started_at`
+- `finished_at`
+- `error`
+- `meta`
+
+`meta`에는 source별 `last_collected_at` checkpoint 같은 운영 메타데이터가 들어간다.
+
+## 5. 현재 리포트 타입
+
+- `interest_area_radar`
+- `interest_stock_radar`
+
+기존 `report` 테이블 조회 흐름은 유지하며, 전략 리포트 원본은 `strategy_report`에도 별도로 저장한다.
+
+## 6. 문서 운영
+
+- 공개 API, request/response, 스케줄 타입, 파이프라인 저장 모델이 바뀌면 이 문서를 갱신한다.

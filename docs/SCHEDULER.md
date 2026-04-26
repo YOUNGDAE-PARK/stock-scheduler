@@ -1,81 +1,136 @@
 # 스케줄러 설계
 
-## 1. 스케줄 타입
+## 1. 사용자 스케줄 타입
 
-스케줄 타입은 v1에서 다음 다섯 가지로 고정한다.
+현재 사용자에게 노출되는 `schedule_type`은 다음 5개다.
 
-- `stock_report`
 - `price_alert_watch`
-- `global_news_digest`
 - `manual_codex_analysis`
 - `interest_area_research_watch`
+- `interest_area_radar_report`
+- `interest_stock_radar_report`
 
-## 2. 스케줄 대상
-
-스케줄 대상은 다음 중 하나다.
-
-- `interest`
-- `holding`
-- `all`
-- 특정 ticker 목록
-- `areas`
-
-## 3. 주요 스케줄
+## 2. 사용자 스케줄 설명
 
 ### 5분 급변 알림
 
-- 장중 5분마다 관심종목과 보유종목 가격을 확인한다.
-- 기본 알림 기준:
-  - 5분 수익률 절대값 `>= 1.5%`
-  - 최근 20개 5분 수익률 대비 `z-score >= 2.0`
-  - 거래량 데이터가 있으면 최근 평균 대비 `2배 이상`
-- 보유종목은 목표가/손절가 근접, 평균매수가 돌파/이탈, 당일 손익 급변도 감지한다.
-- 같은 종목은 30분 cooldown을 둔다.
+- 타입: `price_alert_watch`
+- 주기: 5분
+- 관심종목과 보유종목 가격 급변을 감시한다.
+- KIS 현재가를 사용해 `price_snapshot`을 갱신한다.
+- 같은 종목 알림에는 cooldown을 둔다.
 
-### 글로벌 경제뉴스 08:00
+### 수동 Codex 분석
 
-- 매일 08:00 KST 실행한다.
-- 미국장 마감, 야간 글로벌 뉴스, 환율/금리/원자재, 한국장 영향을 요약한다.
-- RSS/search headline provider로 실제 헤드라인 후보를 수집하고, 금리/환율/원자재/섹터/보유·관심종목 영향과 투자 액션을 우선 도출한다.
+- 타입: `manual_codex_analysis`
+- 주기: 사용자가 원하는 시간 또는 수동 실행
+- 선택 종목 또는 전체 컨텍스트를 바탕으로 일반 분석 리포트를 생성한다.
 
-### 글로벌 경제뉴스 18:00
+### 관심분야 연구성과 감지
 
-- 매일 18:00 KST 실행한다.
-- 한국장 마감, 유럽/미국 개장 전 이슈, 당일 주요 공시/섹터 이슈를 요약한다.
-- 단순 소스 확인 목록이 아니라 수집된 헤드라인 흐름을 근거로 `추가/보유/축소/대기` 관점의 결론을 낸다.
+- 타입: `interest_area_research_watch`
+- 주기: 매일 09:00 KST
+- 관심분야 키워드, 카테고리, linked ticker를 중심으로 의미 있는 연구/정책/기술 성과를 감시한다.
 
-### 관심분야 연구성과 09:00
+### 관심분야 Radar
 
-- 매일 09:00 KST 실행한다.
-- 활성 관심분야의 keyword, category, linked ticker를 context로 사용한다.
-- 연구/제품/임상/특허/정책/상용화 성과가 연결 종목의 주식 전망에 의미 있게 이어질 때만 주요 성과로 판정한다.
-- 주요 성과가 감지되면 리포트 본문과 함께 Telegram 알림을 보낸다.
+- 타입: `interest_area_radar_report`
+- 기본 seed 시간: 매일 07:30 KST
+- 최근 정제 뉴스와 클러스터를 바탕으로 관심분야별 변화와 연결 종목 후보를 요약한다.
 
-## 4. 실행 로그
+### 관심종목 Radar
 
-모든 실행은 다음 상태를 DB에 남긴다.
+- 타입: `interest_stock_radar_report`
+- 기본 seed 시간: 매일 08:40 KST
+- 관심종목과 직접 연관된 뉴스 이벤트, 단기 모멘텀, 감시 포인트를 요약한다.
 
-- 실행 시작/종료 시각
-- 성공/실패 상태
-- 실패 error
-- 푸시 발송 상태
-- 메일 발송 상태
-- Codex 실행 상태
+## 3. 내부 파이프라인 job
 
-현재 구현은 APScheduler `BackgroundScheduler`를 FastAPI lifespan에서 시작하고, 30분 간격 heartbeat job을 dry-run `notification_log`에 기록한다. `매일 HH:MM KST` 형식의 활성 스케줄은 앱 시작 시 cron job으로 등록한다.
+### `news_pipeline_chain`
 
-PWA의 스케줄 `바로 실행`은 `POST /api/schedules/{id}/run`을 호출한다. 가격 감시 스케줄은 KIS 현재가를 조회하고 Telegram 알림을 보낸다. 리포트형 스케줄은 스케줄 타입별 Codex skill로 Markdown 리포트를 생성하고, 생성 결과와 리포트 본문 전체를 Telegram으로 알린다. Telegram 길이 제한을 넘는 리포트는 여러 메시지로 나누어 보낸다. Codex 실패 시에도 fallback 리포트를 만들고 실패 알림과 본문을 보낸다. 관심분야 연구성과 스케줄은 주요 성과 감지 또는 분석 실패/fallback 때 알림을 보낸다.
+- 주기: 4시간 간격
+- 실행 순서:
+  1. `news_collect`
+  2. `article_fetch`
+  3. `news_classify`
+  4. `market_cluster`
 
-## 5. Retry/Fallback
+이 job은 독립적인 3개 interval job이 아니라 하나의 체인으로 실행된다.
 
-- FCM 푸시는 재시도한다.
-- 푸시 실패 또는 미전달 상태는 이메일 fallback으로 보강한다.
-- Codex 실패 또는 timeout 시에도 규칙 기반 알림과 원자료 링크는 발송한다.
-- 실패는 UI에서 확인 가능한 미전달/실패 상태로 남긴다.
+### `news_pipeline_resume`
 
-## 6. 문서 현행화
+- 주기: 서버 재기동 직후 1회
+- 역할:
+  - `pipeline_state`를 읽고 직전 `running` 상태였던 단계부터 재개
+  - 또는 미분류 `news_raw`, 최신 `news_refined`, 오래된 cluster 상태를 보고 필요한 단계부터 재실행
 
-- 스케줄 타입, 실행 주기, retry/fallback, 알림 보장 정책이 바뀌면 이 문서를 갱신한다.
-- 변경 배경은 `docs/HISTORY.md`에 기록한다.
-- 구현 작업은 `docs/TODO.md`에서 추적한다.
-- 구현 완료 후 `docs/CHANGELOG.md`에 기록한다.
+### `data_purge`
+
+- 주기: 매일 03:15 KST
+- 대상:
+  - `news_raw`
+  - `news_refined`
+  - `news_cluster`
+  - `strategy_report`
+- 정책: 30일 초과 데이터 삭제
+
+## 4. 수집 기간 정책
+
+`news_collect`는 source별 checkpoint 기반 incremental 수집을 사용한다.
+
+- 최초 실행:
+  - source별 최근 7일을 backfill 대상으로 본다.
+- 이후 실행:
+  - source별 `last_collected_at`보다 새로운 기사만 유지한다.
+- checkpoint 저장 위치:
+  - `pipeline_state.meta.source_last_collected_at`
+
+이 정책은 재기동 이후에도 그대로 이어진다.
+
+`article_fetch`는 수집된 `news_raw` 중 `raw_body`가 비어 있는 기사에 대해 source URL 본문 추출을 시도한다. 본문 추출은 best-effort이며, 실패한 URL은 재시도 횟수 제한 안에서만 다시 시도한다.
+
+## 5. 수동 실행 규칙
+
+프론트의 `바로 실행` 또는 API `POST /api/schedules/{id}/run`은 다음처럼 동작한다.
+
+- 가격 알림 스케줄:
+  - 현재가 조회
+  - 급변 판단
+  - 알림 전송
+- 일반 분석/관심분야 감지:
+  - Codex skill 실행
+  - fallback 리포트 가능
+- 전략 리포트:
+  - 파이프라인 데이터 상태 점검
+  - 필요 시 `warm_strategy_pipeline()`으로 collector/classifier/cluster 보강
+  - 최종 `report` 및 `strategy_report` 저장
+
+## 6. 실행 로그와 상태
+
+모든 실행은 가능한 한 DB에 상태를 남긴다.
+
+- 시작/종료 시각
+- 성공/실패
+- 에러 메시지
+- 알림 전송 여부
+- Codex 실행 여부
+
+파이프라인 단계는 특히 `pipeline_state`에 별도 기록한다.
+
+- `running`
+- `completed`
+- `failed`
+
+## 7. 프론트 연계
+
+PWA에서는 다음 스케줄 관련 동작을 제공한다.
+
+- 스케줄 카드 목록
+- `schedule_type` 표시
+- `바로 실행`
+- `백필 실행`
+- 파이프라인 테이블 조회
+
+## 8. 문서 운영
+
+- 스케줄 타입, 실행 주기, backfill 규칙, resume 규칙, purge 규칙이 바뀌면 이 문서를 갱신한다.

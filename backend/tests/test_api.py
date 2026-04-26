@@ -84,6 +84,10 @@ def test_interest_area_crud_and_seed_schedule(monkeypatch, tmp_path):
         research_watch = next(item for item in schedules if item["schedule_type"] == "interest_area_research_watch")
         assert research_watch["cron"] == "매일 09:00 KST"
         assert research_watch["target_type"] == "areas"
+        assert all(item["schedule_type"] != "global_news_digest" for item in schedules)
+        assert any(item["schedule_type"] == "interest_area_radar_report" for item in schedules)
+        assert any(item["schedule_type"] == "interest_stock_radar_report" for item in schedules)
+        assert all(item["schedule_type"] != "holding_decision_report" for item in schedules)
 
         created = client.post(
             "/api/interest-areas",
@@ -106,6 +110,79 @@ def test_interest_area_crud_and_seed_schedule(monkeypatch, tmp_path):
         deleted = client.delete(f"/api/interest-areas/{created.json()['id']}")
         assert deleted.status_code == 200
         assert deleted.json() == {"deleted": True}
+
+
+def test_pipeline_table_endpoints_and_backfill(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        import backend.app.main as main
+
+        monkeypatch.setattr(
+            main,
+            "run_news_pipeline_chain",
+            lambda force_collect=False: {
+                "status": "completed",
+                "collect": {"status": "completed", "inserted": 1},
+                "classify": {"status": "completed", "inserted": 1},
+                "cluster": {"status": "completed", "inserted": 1},
+                "started_from": "news_collect",
+            },
+        )
+
+        backfill = client.post("/api/pipeline/backfill")
+        assert backfill.status_code == 200
+        assert backfill.json()["status"] == "completed"
+
+        raw = client.get("/api/pipeline/news-raw")
+        refined = client.get("/api/pipeline/news-refined")
+        cluster = client.get("/api/pipeline/news-cluster")
+        strategy = client.get("/api/pipeline/strategy-reports")
+        state = client.get("/api/pipeline/state")
+
+        assert raw.status_code == 200
+        assert refined.status_code == 200
+        assert cluster.status_code == 200
+        assert strategy.status_code == 200
+        assert state.status_code == 200
+        assert isinstance(raw.json(), list)
+        assert isinstance(state.json(), list)
+
+
+def test_clear_reports_endpoint(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        import backend.app.db as db
+
+        db.insert(
+            "report",
+            {
+                "report_type": "interest_area_radar",
+                "target": {"scope": "test"},
+                "title": "test report",
+                "markdown": "body",
+                "codex_run_id": None,
+            },
+        )
+        db.insert(
+            "strategy_report",
+            {
+                "report_type": "interest_stock_radar",
+                "schedule_id": None,
+                "title": "test strategy",
+                "markdown": "body",
+                "decision_json": {},
+                "major_signal_detected": False,
+                "notification_summary": None,
+                "source_cluster_ids": [],
+            },
+        )
+
+        response = client.post("/api/reports/clear")
+        assert response.status_code == 200
+        assert response.json() == {
+            "deleted_reports": 1,
+            "deleted_strategy_reports": 1,
+        }
+        assert client.get("/api/reports").json() == []
+        assert client.get("/api/pipeline/strategy-reports").json() == []
 
 
 def test_holding_validation(monkeypatch, tmp_path):
@@ -673,15 +750,49 @@ def test_analysis_and_notification_dry_runs(monkeypatch, tmp_path):
     with make_client(monkeypatch, tmp_path) as client:
         run = client.post("/api/analysis/run", json={"target": {"ticker": "TSLA"}})
         assert run.status_code == 200
-        assert run.json()["status"] == "dry_run_completed"
+        assert run.json()["status"] in {"completed", "dry_run_completed"}
 
         reports = client.get("/api/reports")
         assert reports.status_code == 200
-        assert len(reports.json()) == 2
+        assert len(reports.json()) == 1
 
         notification = client.post("/api/notifications/test", json={})
         assert notification.status_code == 200
         assert notification.json()["channel"] == "dry-run"
+
+
+def test_e2e_run_endpoint(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        import backend.app.main as main
+
+        monkeypatch.setattr(
+            main,
+            "run_news_pipeline_chain",
+            lambda force_collect=False: {
+                "status": "completed",
+                "collect": {"status": "completed", "inserted": 2},
+                "fetch": {"status": "completed", "fetched": 2},
+                "classify": {"status": "completed", "inserted": 2},
+                "cluster": {"status": "completed", "inserted": 1},
+            },
+        )
+        monkeypatch.setattr(
+            main,
+            "run_schedule_now",
+            lambda schedule_id: {
+                "status": "completed",
+                "message": "개인화 전략 리포트를 생성했습니다.",
+                "report": {"title": "E2E report"},
+                "notification": {"channel": "dry-run"},
+            },
+        )
+
+        response = client.post("/api/e2e/run?schedule_type=interest_area_radar_report")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "completed"
+        assert payload["pipeline"]["collect"]["inserted"] == 2
+        assert payload["result"]["notification"]["channel"] == "dry-run"
 
 
 def test_run_schedule_now_creates_report_or_notification(monkeypatch, tmp_path):
@@ -732,3 +843,191 @@ def test_run_schedule_now_creates_report_or_notification(monkeypatch, tmp_path):
         alert_result = client.post(f"/api/schedules/{alert['id']}/run")
         assert alert_result.status_code == 200
         assert alert_result.json()["notification"]["channel"] == "dry-run"
+
+
+def test_strategy_pipeline_end_to_end(monkeypatch, tmp_path):
+    with make_client(monkeypatch, tmp_path) as client:
+        import backend.app.db as db
+        import backend.app.services.news_pipeline as news_pipeline
+        import backend.app.services.schedule_runner as schedule_runner
+
+        interest_area = client.post(
+            "/api/interest-areas",
+            json={
+                "name": "AI 반도체",
+                "category": "research",
+                "keywords": ["HBM", "온디바이스 AI"],
+                "linked_tickers": ["005930"],
+                "memo": "E2E test area",
+            },
+        )
+        assert interest_area.status_code == 200
+
+        interest_stock = client.post(
+            "/api/interests",
+            json={
+                "ticker": "005930",
+                "market": "KR",
+                "name": "삼성전자",
+                "tags": ["반도체"],
+            },
+        )
+        assert interest_stock.status_code == 200
+
+        holding = client.post(
+            "/api/holdings",
+            json={
+                "ticker": "000660",
+                "market": "KR",
+                "name": "SK하이닉스",
+                "quantity": 2,
+                "avg_price": 150000,
+            },
+        )
+        assert holding.status_code == 200
+
+        monkeypatch.setattr(
+            news_pipeline,
+            "collect_global_news",
+            lambda enabled_sources, stocks, interest_areas, max_items=36: {
+                "items": [
+                    {
+                        "title": "삼성전자 HBM 공급 확대, AI 메모리 수요 강세",
+                        "url": "https://example.com/news-1",
+                        "source": "BBC Business",
+                        "source_key": "default:bbc_business",
+                        "category": "business",
+                        "published_at": "2026-04-26T07:00:00+00:00",
+                        "summary": "HBM 공급 확대와 AI 메모리 수요 강세가 이어진다.",
+                    },
+                    {
+                        "title": "SK하이닉스와 반도체 업종, 온디바이스 AI 기대 확산",
+                        "url": "https://example.com/news-2",
+                        "source": "The Guardian Business",
+                        "source_key": "default:guardian_business",
+                        "category": "business",
+                        "published_at": "2026-04-26T07:10:00+00:00",
+                        "summary": "온디바이스 AI와 메모리 업황 기대가 높아진다.",
+                    },
+                ],
+                "sources": [
+                    {"feed_id": "default:bbc_business", "name": "BBC Business"},
+                    {"feed_id": "default:guardian_business", "name": "The Guardian Business"},
+                ],
+                "errors": [],
+            },
+        )
+        monkeypatch.setattr(
+            news_pipeline,
+            "fetch_article_body",
+            lambda url: {
+                "resolved_url": url,
+                "source_url": url,
+                "content_type": "text/html",
+                "body": (
+                    "삼성전자와 SK하이닉스가 HBM과 AI 메모리 수요 확대의 수혜를 본다. "
+                    "관심분야인 AI 반도체와 온디바이스 AI 모멘텀이 강화되고 있다."
+                ),
+            },
+        )
+        monkeypatch.setattr(
+            schedule_runner,
+            "_refresh_current_prices",
+            lambda stocks: {
+                "updated": [
+                    {**stock, "price": 165000 if stock["ticker"] == "005930" else 198000, "source": "test"}
+                    for stock in stocks
+                ],
+                "failed": [],
+            },
+        )
+
+        def fake_codex_analysis(run_type, target, context):
+            refined_items = context.get("pipeline", {}).get("recent_refined_news") or []
+            assert refined_items, "final analysis should receive refined news context"
+            assert refined_items[0].get("refined_summary"), "refined summary should be populated"
+
+            run = db.insert(
+                "codex_run",
+                {
+                    "run_type": run_type,
+                    "target": target,
+                    "agent_role": "schedule-analysis",
+                    "prompt_path": "",
+                    "output_path": "",
+                    "status": "completed",
+                    "started_at": db.utc_now(),
+                    "finished_at": db.utc_now(),
+                    "error": None,
+                },
+            )
+            report = db.insert(
+                "report",
+                {
+                    "report_type": run_type,
+                    "target": target,
+                    "title": "관심종목 Radar E2E",
+                    "markdown": "# 관심종목 Radar\n\n- refined summary 기반 E2E 리포트",
+                    "codex_run_id": run["id"],
+                    "created_at": db.utc_now(),
+                },
+            )
+            return {
+                "run": run,
+                "report": report,
+                "analysis": {
+                    "title": report["title"],
+                    "markdown": report["markdown"],
+                    "major_signal_detected": True,
+                    "notification_summary": "삼성전자 HBM 모멘텀",
+                    "decision_json": {
+                        "refined_titles": [item.get("title") for item in refined_items],
+                        "used_refined_summary": refined_items[0].get("refined_summary"),
+                    },
+                },
+            }
+
+        monkeypatch.setattr(schedule_runner, "run_codex_schedule_analysis", fake_codex_analysis)
+
+        backfill = client.post("/api/pipeline/backfill")
+        assert backfill.status_code == 200
+        assert backfill.json()["status"] == "completed"
+        assert backfill.json()["collect"]["inserted"] == 2
+        assert backfill.json()["fetch"]["fetched"] == 2
+        assert backfill.json()["classify"]["inserted"] == 2
+        assert backfill.json()["cluster"]["inserted"] >= 1
+
+        raw_rows = client.get("/api/pipeline/news-raw").json()
+        refined_rows = client.get("/api/pipeline/news-refined").json()
+        cluster_rows = client.get("/api/pipeline/news-cluster").json()
+        assert len(raw_rows) == 2
+        assert all(row["raw_body"] for row in raw_rows)
+        assert len(refined_rows) == 2
+        assert any("005930" in row["tickers"] for row in refined_rows)
+        assert any(row["user_links"]["interest_areas"] for row in refined_rows)
+        assert len(cluster_rows) >= 1
+
+        schedules = client.get("/api/schedules").json()
+        radar = next(item for item in schedules if item["schedule_type"] == "interest_stock_radar_report")
+        run_result = client.post(f"/api/schedules/{radar['id']}/run")
+        assert run_result.status_code == 200
+
+        payload = run_result.json()
+        assert payload["status"] == "completed"
+        assert payload["report"]["report_type"] == "interest_stock_radar_report"
+        assert payload["strategy_report"]["report_type"] == "interest_stock_radar"
+        assert payload["run"]["status"] == "completed"
+        assert payload["report"]["title"] == "관심종목 Radar E2E"
+
+        reports = client.get("/api/reports").json()
+        strategy_reports = client.get("/api/pipeline/strategy-reports").json()
+        pipeline_state = client.get("/api/pipeline/state").json()
+
+        assert any(report["title"] == "관심종목 Radar E2E" for report in reports)
+        assert any(report["report_type"] == "interest_stock_radar" for report in strategy_reports)
+        assert {row["pipeline_name"] for row in pipeline_state} >= {
+            "news_collect",
+            "article_fetch",
+            "news_classify",
+            "market_cluster",
+        }

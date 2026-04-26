@@ -106,3 +106,9 @@ def test_gemini_analysis_payload_is_normalized():
     assert payload["markdown"] == "# 테스트"
     assert payload["major_signal_detected"] is False
     assert payload["notification_summary"] is None
+    assert payload["decision_json"] == {
+        "items": [],
+        "watch_points": [],
+        "notes": [],
+        "summary": None,
+    }
